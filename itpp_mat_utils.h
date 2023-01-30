@@ -35,6 +35,29 @@ inline mat fftshift(const mat &x)
 }
 
 /**
+ * 二维FFT原理
+ * 二维FFT是在一维FFT基础上实现，实现过程为：
+ * 1.对二维输入数据的每一行进行FFT，变换结果仍然按行存入二维数组中。
+ * 2.在1的结果基础上，对每一列进行FFT，再存入原来数组，及得到二维FFT结果。
+ * @param real mat
+ * @return
+ */
+inline cmat fft2(const mat &x)
+{
+    cout << "have_fourier_transforms: " << have_fourier_transforms() << endl;
+    cmat cx(x.rows(), x.cols());
+    for(int i = 0; i < x.rows() - 1; ++i) {
+        cvec rowx = fft_real(x.get_row(i));
+        cx.set_row(i, rowx);
+    }
+    for(int i = 0; i < x.cols() - 1; ++i) {
+        cvec colx = fft(cx.get_col(i));
+        cx.set_col(i, colx);
+    }
+    return cx;
+}
+
+/**
  * @brief generator psf by besselj functions
  * @param width: generate [wxw] mat
  * @param scale: a parameter used to adjust PSF width

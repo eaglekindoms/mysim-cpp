@@ -3,6 +3,7 @@
 #include <itpp/signal/transforms.h>
 #include <iomanip>
 #include "itpp_mat_utils.h"
+#include "cv_mat_utils.h"
 
 using namespace std;
 using namespace itpp;
@@ -10,21 +11,37 @@ using namespace itpp;
 
 void fftshift(const cv::Mat& inputImg, cv::Mat& outputImg);
 
+cv::Mat cmat2cvmat(cmat &psf)
+{
+    int row = psf.rows();
+    int col = psf.cols();
+    mat temp = log10(real(psf));
+    cv::Mat real(row, col, CV_64F, temp._data());
+    temp = log10(imag(psf));
+    cv::Mat imag(row, col, CV_64F, temp._data());
+    cv::Mat planes[] = {real, imag};
+    cv::Mat otf;
+    cv::merge(planes, 2, otf);
+    return otf;
+}
+
 int main()
 {
-  int w=512;
-  mat psf=generatorPSF(w,0.3);
-//  mat psf1=fftshift(psf);
-  cv::Mat cvMat(w,w,CV_64F,psf._data());
-//  cv::Mat cvMat1(w,w,CV_64F,psf1._data());
-//  fftshift(cvMat1,cvMat);
-//  cout<< "cvpsf = "<< cvMat<<endl;
-  cv::imshow("cvMat",cvMat);
-//  cv::imshow("cvMat1",cvMat1);
-//  cv::imwrite("psf.tiff",cvMat);
-  cv::waitKey(0);
-  return 0;
+    int w = 512;
+    mat psf = generatorPSF(w, 0.3);
+    cmat otf = fft2(psf);
+    cv::Mat cvMat(w, w, CV_64F, psf._data());
+    cv::Mat cvMat1 = cvfft2(cvMat);
+//    cv::log(cvMat1,cvMat1);
+//    cv::normalize(cvMat1, cvMat1, 0, 1, cv::NORM_MINMAX);
 
+//    cout << "otf = " << otf << endl;
+//    cout << "cvMat1 = " << cvMat1 << endl;
+    cv::imshow("cvMat", cvMat);
+    cv::imshow("cvMat1", cvMat1);
+    cv::imwrite("psf.tiff", cvMat);
+    cv::waitKey(0);
+    return 0;
 }
 
 //! [fftshift]
