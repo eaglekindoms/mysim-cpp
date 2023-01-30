@@ -3,8 +3,28 @@
 
 #include <opencv2/opencv.hpp>
 
-inline cv::Mat cvfft2(cv::Mat &padded){
-    cv::Mat planes[] = {cv::Mat_<float>(padded), cv::Mat::zeros(padded.size(), CV_32F)};
+//! [fftshift]
+inline void fftshift(const cv::Mat& inputImg, cv::Mat& outputImg)
+{
+    outputImg = inputImg.clone();
+    int cx = outputImg.cols / 2;
+    int cy = outputImg.rows / 2;
+    cv::Mat q0(outputImg, cv::Rect(0, 0, cx, cy));
+    cv::Mat q1(outputImg, cv::Rect(cx, 0, cx, cy));
+    cv::Mat q2(outputImg, cv::Rect(0, cy, cx, cy));
+    cv::Mat q3(outputImg, cv::Rect(cx, cy, cx, cy));
+    cv::Mat tmp;
+    q0.copyTo(tmp);
+    q3.copyTo(q0);
+    tmp.copyTo(q3);
+    q1.copyTo(tmp);
+    q2.copyTo(q1);
+    tmp.copyTo(q2);
+}
+
+
+inline cv::Mat cvfft2(cv::Mat &input){
+    cv::Mat planes[] = {cv::Mat_<float>(input), cv::Mat::zeros(input.size(), CV_32F)};
     cv::Mat complexImg;
     cv::merge(planes, 2, complexImg);
 
@@ -25,19 +45,7 @@ inline cv::Mat cvfft2(cv::Mat &padded){
 
     // rearrange the quadrants of Fourier image
     // so that the origin is at the image center
-    cv::Mat tmp;
-    cv::Mat q0(mag, cv::Rect(0, 0, cx, cy));
-    cv::Mat q1(mag, cv::Rect(cx, 0, cx, cy));
-    cv::Mat q2(mag, cv::Rect(0, cy, cx, cy));
-    cv::Mat q3(mag, cv::Rect(cx, cy, cx, cy));
-
-    q0.copyTo(tmp);
-    q3.copyTo(q0);
-    tmp.copyTo(q3);
-
-    q1.copyTo(tmp);
-    q2.copyTo(q1);
-    tmp.copyTo(q2);
+    fftshift(mag,mag);
 
     normalize(mag, mag, 0, 1, cv::NORM_MINMAX);
 
