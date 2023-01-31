@@ -36,11 +36,11 @@ file(GLOB itpp_dll ${itpp_path}/bin/*.dll)
 
 add_executable(opencv2 main.cpp)
 add_executable(eigen_demo eigen_demo.cpp)
-add_executable(itpp_demo itpp_demo.cpp)
+add_executable(psf_test psf_test.cpp)
 
 TARGET_LINK_LIBRARIES(opencv2 ${OpenCV_LIBS} ${itpp_lib})
 TARGET_LINK_LIBRARIES(eigen_demo ${OpenCV_LIBS})
-TARGET_LINK_LIBRARIES(itpp_demo ${OpenCV_LIBS} ${itpp_lib} ${fftw_lib})
+TARGET_LINK_LIBRARIES(psf_test ${OpenCV_LIBS} ${itpp_lib} ${fftw_lib})
 
 install(TARGETS opencv2
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} )
