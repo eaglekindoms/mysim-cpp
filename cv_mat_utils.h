@@ -39,7 +39,7 @@ inline cv::Mat cvfft2(cv::Mat &input) {
     // rearrange the quadrants of Fourier image
     // so that the origin is at the image center
     fftshift(mag, mag);
-    normalize(mag, mag, 0, 1, cv::NORM_MINMAX);
+    cv::normalize(mag, mag, 0, 1, cv::NORM_MINMAX);
     return mag;
 }
 

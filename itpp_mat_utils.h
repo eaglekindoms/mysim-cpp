@@ -21,6 +21,18 @@ inline void minMat(Mat<T> &x, Mat<T> &y) {
 }
 
 template<class T>
+inline cmat mat2cmat(Mat<T> &x) {
+    cmat cm(x.rows(), x.cols());
+    for (int i = 0; i < x.rows(); ++i) {
+        for (int j = 0; j < x.cols(); ++j) {
+            std::complex<double> c(x.get(i, j), 0);
+            cm.set(i, j, c);
+        }
+    }
+    return cm;
+}
+
+template<class T>
 inline Mat<T> fftshift(Mat<T> &x) {
     Mat<T> out = x;
     int i = 0, j = 0;
@@ -42,7 +54,7 @@ inline Mat<T> fftshift(Mat<T> &x) {
  * @return
  */
 inline cmat fft2(const mat &x) {
-    cout << "have_fourier_transforms: " << have_fourier_transforms() << endl;
+//    cout << "have_fourier_transforms: " << have_fourier_transforms() << endl;
     cmat cx(x.rows(), x.cols());
     cvec temp;
     for (int i = 0; i < x.rows(); ++i) {
@@ -54,6 +66,21 @@ inline cmat fft2(const mat &x) {
         cx.set_col(i, temp);
     }
     return cx;
+}
+
+inline mat ifft2(const cmat &cx) {
+//    cout << "have_fourier_transforms: " << have_fourier_transforms() << endl;
+    cmat x(cx.rows(), cx.cols());
+    mat out(cx.rows(), cx.cols());
+    for (int i = 0; i < cx.rows(); ++i) {
+        cvec temp = ifft(cx.get_row(i));
+        x.set_row(i, temp);
+    }
+    for (int i = 0; i < cx.cols(); ++i) {
+        vec temp = ifft_real(x.get_col(i));
+        out.set_col(i, temp);
+    }
+    return out;
 }
 
 /**
