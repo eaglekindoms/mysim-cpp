@@ -2,8 +2,8 @@
 #include <itpp/itbase.h>
 #include <itpp/signal/transforms.h>
 #include <iomanip>
-#include <itpp_mat_utils.h>
-#include <sim_utils.h>
+#include <utils/itpp_mat_utils.h>
+#include <utils/sim_utils.h>
 
 using namespace std;
 using namespace itpp;
@@ -28,17 +28,6 @@ mat cvmat2mat(cv::Mat input) {
     return out;
 }
 
-void showPatternImage(Vec<mat> patterns, int w) {
-    for (int i = 0; i < 9; ++i) {
-        mat temp = patterns[i];
-//        mat temp = real(fft2(patterns[i]));
-//        temp = fftshift(temp);
-        cv::Mat objs(w, w, CV_64F, temp._data());
-        string name = "obj:" + std::to_string(i);
-        cv::imshow(name, objs);
-    }
-}
-
 int main() {
     cout << "Hello OpenSIM!" << endl;
     int w = 512;
@@ -55,11 +44,13 @@ int main() {
     double noiseLevel = 10.; // in percentage
 //    testpat.convertTo(testpat,CV_64F);
     mat obj = cvmat2mat(testpat);
-    Vec<mat> patterns = simulateSIMImage(k2, obj, otf, modFac, noiseLevel);
-    showPatternImage(patterns, obj.rows());
-//    cv::Mat rawObj(w, w, CV_64F, obj._data());
-//    cv::imshow("testpat", testpat);
-//    cv::imshow("rawObj", rawObj);
+    Vec<mat> patterns = simulateSIMImage(k2, obj, otf, modFac, noiseLevel, 1);
+    showPatternImage(patterns, obj.rows(), 0);
+    int objMax = max(max(obj, 1));
+    obj = obj / objMax;
+    cv::Mat rawObj(w, w, CV_64F, obj._data());
+    cv::imshow("testpat", testpat);
+    cv::imshow("rawObj", rawObj);
 //    cv::imwrite("objs.tiff", objs);
 //    Mat resimg;
 //    //高斯模糊

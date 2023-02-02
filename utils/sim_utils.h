@@ -7,6 +7,7 @@
 
 #include <itpp/itbase.h>
 #include <itpp/signal/transforms.h>
+#include <itpp/stat/misc_stat.h>
 
 using namespace std;
 using namespace itpp;
@@ -18,8 +19,9 @@ using namespace itpp;
  * @param otf 系统otf
  * @param modFac 调制因子
  * @param noiseLevel 加噪等级
+ * @param addNoise 是否加噪，1-加/0-不加
  */
-Vec<mat> simulateSIMImage(double freq, mat obj, mat otf, double modFac, double noiseLevel) {
+Vec<mat> simulateSIMImage(double freq, mat obj, mat otf, double modFac, double noiseLevel, int addNoise) {
     int width = obj.rows();
     mat X(width, width), Y(width, width);
     vec line = linspace(0, width - 1, width);
@@ -62,13 +64,36 @@ Vec<mat> simulateSIMImage(double freq, mat obj, mat otf, double modFac, double n
         // 与otf卷积
         cmat cotf = mat2cmat(otf);
         patterns[i] = ifft2(elem_mult(fft2(patterns[i]), (fftshift(cotf))));
-        int patMax = max(max(patterns[i], 1));
-        patterns[i] = patterns[i] / patMax;
+        // Gaussian Noisy
+        double sigma = std2(patterns[i]) * noiseLevel / 100.0;
+        mat noisy = randn(obj.rows(), obj.cols()) * sigma;
+        patterns[i] = patterns[i] + addNoise * noisy;
         //        cout << "patterns " << i << " = " << patterns[i].get_row(0) << endl;
     }
-//            cout << "patterns " << " = " << patterns[0] << endl;
-
+//            cout << "patterns " << " = " << patterns[0] << endl
     return patterns;
+}
+
+/**
+ * 显示SIM矩阵
+ * @param patterns
+ * @param w 图像宽度
+ * @param isFreq 是否显示频域图像，1-是/0-否
+ */
+void showPatternImage(Vec<mat> patterns, int w, int isFreq) {
+    for (int i = 0; i < 9; ++i) {
+        mat temp = patterns[i];
+        if (isFreq == 1) {
+            temp = real(fft2(patterns[i]));
+            temp = fftshift(temp);
+        } else {
+            int tempMax = max(max(temp, 1));
+            temp = temp / tempMax;
+        }
+        cv::Mat objs(w, w, CV_64F, temp._data());
+        string name = "obj:" + std::to_string(i);
+        cv::imshow(name, objs);
+    }
 }
 
 #endif //SIM_UTILS_H

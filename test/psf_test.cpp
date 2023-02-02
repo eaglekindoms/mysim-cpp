@@ -1,9 +1,7 @@
 ﻿#include <opencv2/opencv.hpp>
-#include <itpp/itbase.h>
 #include <itpp/signal/transforms.h>
-#include <iomanip>
-#include <itpp_mat_utils.h>
-#include <cv_mat_utils.h>
+#include <utils/itpp_mat_utils.h>
+#include <utils/cv_mat_utils.h>
 
 using namespace std;
 using namespace itpp;

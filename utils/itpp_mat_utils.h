@@ -3,6 +3,7 @@
 
 #include <itpp/itbase.h>
 #include <itpp/signal/transforms.h>
+#include <itpp/stat/misc_stat.h>
 
 using namespace std;
 using namespace itpp;
@@ -68,6 +69,11 @@ inline cmat fft2(const mat &x) {
     return cx;
 }
 
+/**
+ * 二维逆傅里叶变换
+ * @param cx
+ * @return
+ */
 inline mat ifft2(const cmat &cx) {
 //    cout << "have_fourier_transforms: " << have_fourier_transforms() << endl;
     cmat x(cx.rows(), cx.cols());
@@ -129,13 +135,23 @@ inline mat generatorPSF(int width, double scale) {
 inline mat PSFToOTF(const mat &psf) {
     cmat otf = fft2(psf);
 // 归一化矩阵
-    complex<double> otfmax = max(max(abs(otf), 1));
+    complex<double> otfMax = max(max(abs(otf), 1));
 //    cout << "otfmax = " << otfmax << endl;
-    otf = otf / otfmax;
+    otf = otf / otfMax;
     otf = fftshift(otf);
 //    cout << "otf = " << otf << endl;
     mat aotf = abs(otf);
     return aotf;
+}
+
+/**
+ * 求矩阵标准差
+ * @param x 矩阵
+ * @return 标准差
+ */
+inline double std2(mat &x) {
+    vec col(x._data(), x.cols() * x.rows());
+    return sqrt(variance(col));
 }
 
 #endif // MAT_UTILS_H
