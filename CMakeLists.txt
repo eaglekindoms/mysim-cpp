@@ -32,17 +32,23 @@ file(GLOB itpp_dll ${itpp_path}/bin/*.dll)
 #set(FFT_INCLUDES ${fftw_path}/fftw3.h)
 #set(FFT_LIBRARIES ${fftw_path}/fftw3.lib)
 #file(GLOB fftw_dll ${fftw_path}/fftw3.dll)
-#include_directories("D:/SDK_PATH/fftw-3.3.5/")
+#include_directories(${fftw_path})
+
+include_directories(${CMAKE_SOURCE_DIR})
+
+add_subdirectory(test)
 
 add_executable(opencv2 main.cpp)
-add_executable(eigen_demo eigen_demo.cpp)
-add_executable(psf_test psf_test.cpp)
 
 TARGET_LINK_LIBRARIES(opencv2 ${OpenCV_LIBS} ${itpp_lib})
-TARGET_LINK_LIBRARIES(eigen_demo ${OpenCV_LIBS})
-TARGET_LINK_LIBRARIES(psf_test ${OpenCV_LIBS} ${itpp_lib} ${fftw_lib})
 
 install(TARGETS opencv2
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} )
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
+# copy *.dll to exe path
 file(COPY ${fftw_dll} ${itpp_dll} DESTINATION ${PROJECT_BINARY_DIR})
+file(COPY ${fftw_dll} ${itpp_dll} DESTINATION ${PROJECT_BINARY_DIR}/test)
+
+#copy dataset directory
+file(GLOB dataset ${CMAKE_SOURCE_DIR}/dataset/*.*)
+file(COPY ${dataset} DESTINATION ${PROJECT_BINARY_DIR}/dataset)

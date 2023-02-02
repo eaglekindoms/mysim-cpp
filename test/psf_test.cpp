@@ -2,15 +2,15 @@
 #include <itpp/itbase.h>
 #include <itpp/signal/transforms.h>
 #include <iomanip>
-#include "itpp_mat_utils.h"
-#include "cv_mat_utils.h"
+#include <itpp_mat_utils.h>
+#include <cv_mat_utils.h>
 
 using namespace std;
 using namespace itpp;
 
 int main() {
     int w = 512;
-    mat psf = generatorPSF(w, 0.3);
+    mat psf = generatorPSF(w, 0.63);
     cv::Mat cv_psf(w, w, CV_64F, psf._data());
     cv::Mat cv_otf = cvfft2(cv_psf);
     mat otf = PSFToOTF(psf);
