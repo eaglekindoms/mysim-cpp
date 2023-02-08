@@ -10,24 +10,6 @@ using namespace itpp;
 
 using namespace std;
 
-mat cvmat2mat(cv::Mat input) {
-    cout << "total: " << input.total() << endl;
-    cout << "type: " << input.type() << endl;
-    cout << "channels: " << input.channels() << endl;
-    if (input.channels() > 1) {
-        cout << "this func only support single channel image!" << endl;
-        std::exit(-1);
-    }
-    mat out(input.rows, input.cols);
-    for (int i = 0; i < input.rows; ++i) {
-        for (int j = 0; j < input.cols; ++j) {
-            out.set(i, j, input.at<uchar>(j, i));
-//            std::printf("%u, ",testpat.at<uchar>(i, j));
-        }
-    }
-    return out;
-}
-
 int main() {
     cout << "Hello OpenSIM!" << endl;
     int w = 512;

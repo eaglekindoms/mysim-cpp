@@ -4,9 +4,29 @@
 #include <itpp/itbase.h>
 #include <itpp/signal/transforms.h>
 #include <itpp/stat/misc_stat.h>
+#include <opencv2/opencv.hpp>
 
 using namespace std;
 using namespace itpp;
+
+
+mat cvmat2mat(cv::Mat input) {
+    cout << "total: " << input.total() << endl;
+    cout << "type: " << input.type() << endl;
+    cout << "channels: " << input.channels() << endl;
+    if (input.channels() > 1) {
+        cout << "this func only support single channel image!" << endl;
+        std::exit(-1);
+    }
+    mat out(input.rows, input.cols);
+    for (int i = 0; i < input.rows; ++i) {
+        for (int j = 0; j < input.cols; ++j) {
+            out.set(i, j, input.at<uchar>(j, i));
+//            std::printf("%u, ",testpat.at<uchar>(i, j));
+        }
+    }
+    return out;
+}
 
 template<class T>
 inline void minMat(Mat<T> &x, Mat<T> &y) {
@@ -31,6 +51,16 @@ inline cmat mat2cmat(Mat<T> &x) {
         }
     }
     return cm;
+}
+
+template<class T>
+inline cvec vec2cvec(Vec<T> &x) {
+    cvec cvec1(x.size());
+    for (int i = 0; i < x.size(); ++i) {
+        std::complex<double> c(x.get(i), 0);
+        cvec1.set(i, c);
+    }
+    return cvec1;
 }
 
 template<class T>
@@ -152,6 +182,63 @@ inline mat PSFToOTF(const mat &psf) {
 inline double std2(mat &x) {
     vec col(x._data(), x.cols() * x.rows());
     return sqrt(variance(col));
+}
+
+/**
+ * 对图像边缘进行模糊处理，基于matlab的cpp实现
+ * @param image
+ * @param psf
+ */
+inline mat edgeTaper(mat image, mat psf) {
+    // 1. Compute the weighting factor alpha used for image windowing,
+    // alpha=1 within the interior of the picture and alpha=0 on the edges.
+    psf = psf / sum(sum(psf));
+    mat alpha(image.rows(), image.cols());
+    Vec<vec> beta(2);
+    // row
+    vec psfProjr = zeros(psf.rows());
+    vec psfProjc = zeros(psf.rows());
+    for (int i = 0, j = 0; i < psf.rows() || j < psf.cols(); i++, j++) {
+        if (i < psf.rows()) {
+            psfProjr.set(i, sum(psf.get_row(i)));
+        }
+        if (j < psf.cols()) {
+            psfProjc.set(i, sum(psf.get_col(i)));
+        }
+    }
+    auto psf_proj = [](vec vector, int size) -> vec {
+        cvec fProj = fft_real(vector, size);
+        vec temp = pow(abs(fProj), 2);
+        fProj = vec2cvec(temp);
+        vec z = real(ifft(fProj, size));
+        double maxZ = max(z);
+        z = concat(z, 1.0);
+        z = z / maxZ;
+        return z;
+    };
+    beta.set(0, psf_proj(psfProjr, image.rows() - 1));
+    beta.set(1, psf_proj(psfProjc, image.cols() - 1));
+    for (int i = 0; i < beta[0].size(); ++i) {
+        alpha.set_row(i, (1.0 - beta[0].get(i)) * (1.0 - beta[1]));
+    }
+    // 2. Blur image I by PSF & weight it and I with factor alpha
+    mat fixPsf = zeros(image.rows(), image.cols());
+    fixPsf.set_submatrix(image.rows() / 2 - psf.rows() / 2, image.cols() / 2 - psf.cols() / 2, psf);
+    fixPsf = fftshift(fixPsf);
+    cmat otf = fft2(fixPsf);
+    cmat fImage = elem_mult(fft2(image), otf);
+    mat blurredI = ifft2(fImage);
+    mat result = elem_mult(alpha, image) + elem_mult(1 - alpha, blurredI);
+    double maxI = max(max(image));
+    double minI = min(min(image));
+    for (int i = 0; i < result.rows(); ++i) {
+        for (int j = 0; j < result.cols(); ++j) {
+            if (result.get(i, j) > maxI)result.set(i, j, maxI);
+            if (result.get(i, j) < minI)result.set(i, j, minI);
+        }
+    }
+    return result;
+
 }
 
 #endif // MAT_UTILS_H

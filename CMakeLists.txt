@@ -52,3 +52,4 @@ file(COPY ${fftw_dll} ${itpp_dll} DESTINATION ${PROJECT_BINARY_DIR}/test)
 #copy dataset directory
 file(GLOB dataset ${CMAKE_SOURCE_DIR}/dataset/*.*)
 file(COPY ${dataset} DESTINATION ${PROJECT_BINARY_DIR}/dataset)
+file(COPY ${dataset} DESTINATION ${PROJECT_BINARY_DIR}/test/dataset)
