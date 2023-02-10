@@ -27,7 +27,8 @@ int main() {
 //    testpat.convertTo(testpat,CV_64F);
     mat obj = cvmat2mat(testpat);
     Vec<mat> patterns = simulateSIMImage(k2, obj, otf, modFac, noiseLevel, 1);
-    showPatternImage(patterns, obj.rows(), 0);
+//    showPatternImage(patterns, obj.rows(), 0);
+    separatedSIMComponents2D(patterns,otf);
     int objMax = max(max(obj, 1));
     obj = obj / objMax;
     cv::Mat rawObj(w, w, CV_64F, obj._data());

@@ -42,7 +42,7 @@ void test_edgeTaper() {
     int h = 30;
     otf = pow(otf, 10);
     otf = fftshift(otf);
-    cmat cotf = mat2cmat(otf);
+    cmat cotf = to_cmat(otf);
     otf = ifft2(cotf);
     mat psfd = fftshift(otf);
     psfd = psfd / max(max(psfd));
@@ -58,4 +58,5 @@ void test_edgeTaper() {
     blurred = blurred / max(max(blurred));
     cv::Mat result(w, w, CV_64F, blurred._data());
     cv::imshow("result", result);
+    cv::imshow("testpat", testpat);
 }
