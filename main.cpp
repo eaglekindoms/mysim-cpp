@@ -27,8 +27,19 @@ int main() {
 //    testpat.convertTo(testpat,CV_64F);
     mat obj = cvmat2mat(testpat);
     Vec<mat> patterns = simulateSIMImage(k2, obj, otf, modFac, noiseLevel, 1);
-//    showPatternImage(patterns, obj.rows(), 0);
-    separatedSIMComponents2D(patterns,otf);
+    // showPatternImage(patterns, obj.rows(), 0);
+    // obtaining the noisy estimates of three frequency components
+    Vec<tuple<Vec<cmat>, vec>> components(3);
+    for (int i = 0; i < 9; i = i + 3) {
+        cout << "estimates frequency components, index: " << i / 3 << endl;
+        components[i / 3] = separatedSIMComponents2D(patterns, otf, i);
+    }
+    // averaging the central frequency components
+    cmat fCent = (get<0>(components[0])[0] + get<0>(components[1])[0] + get<0>(components[2])[0]) / 3;
+    // Object power parameters determination
+    vec OBJParaA = estimateObjectPowerParameters(fCent, otf);
+
+    // show raw image
     int objMax = max(max(obj, 1));
     obj = obj / objMax;
     cv::Mat rawObj(w, w, CV_64F, obj._data());
