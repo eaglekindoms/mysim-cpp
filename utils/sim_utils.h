@@ -10,6 +10,8 @@
 #include <itpp/stat/misc_stat.h>
 #include <utils/optimizer.h>
 #include <Eigen/Dense>
+#include <opencv2/opencv.hpp>
+#include <utils/thread_pool.h>
 
 using Eigen::MatrixXcd;
 
@@ -279,7 +281,7 @@ double estimatePhaseShift(mat noisyImage, vec freq) {
 /**
  * determination of object power parameters Aobj and Bobj
  * @param fCent: FT of central frequency component
- * @param otf: system OTFo
+ * @param otf: system OTF
  * @return 功率谱参数
  */
 vec estimateObjectPowerParameters(cmat fCent, mat otf) {
@@ -351,18 +353,39 @@ vec estimateObjectPowerParameters(cmat fCent, mat otf) {
     return vec(result.xmin.data(), 2);
 }
 
+/**
+ * obtaining the noisy estimates of three frequency components
+ * @param patterns: raw SIM images
+ * @param otf: system OTF
+ * @param index: phase index
+ * @return noisy estimates of separated frequency components; avg. illumination frequency vector
+ */
 tuple<Vec<cmat>, vec> separatedSIMComponents2D(Vec<mat> patterns, mat otf, int index) {
     cout << "start estimate freq" << endl;
-    vec freq1 = estimateFreqVector(patterns[index], otf);
-    vec freq2 = estimateFreqVector(patterns[index + 1], otf);
-    vec freq3 = estimateFreqVector(patterns[index + 2], otf);
-    vec freq = (freq1 + freq2 + freq3) / 3.0;
+    ThreadPool pool(3);
+    vector<future<vec>> results1;
+    for (int i = 0; i < 3; i++) {
+        results1.emplace_back(pool.enqueue([=] {
+            return estimateFreqVector(patterns[index + i], otf);
+        }));
+    }
+    vec freq = zeros(2);
+    for (future<vec> &result: results1) {
+        freq += result.get();
+    }
+    freq = freq / 3.0;
     cout << "mean of three order freq: " << freq << endl;
     cout << "start estimate phase" << endl;
     vec phase(3);
-    phase.set(0, estimatePhaseShift(patterns[index], freq));
-    phase.set(1, estimatePhaseShift(patterns[index + 1], freq));
-    phase.set(2, estimatePhaseShift(patterns[index + 2], freq));
+    vector<future<double>> results2;
+    for (int i = 0; i < 3; i++) {
+        results2.emplace_back(pool.enqueue([=] {
+            return estimatePhaseShift(patterns[index + i], freq);
+        }));
+    }
+    for (int i = 0; i < 3; ++i) {
+        phase[i] = results2[i].get();
+    }
     phase = phase * 180 / pi;
     cout << "three order phase: " << phase << endl;
     // computing PSFe for edge tapering SIM images
@@ -403,15 +426,134 @@ tuple<Vec<cmat>, vec> separatedSIMComponents2D(Vec<mat> patterns, mat otf, int i
     return make_tuple(unmixedFT, freq);
 }
 
-void wienerFilterCenter(cmat FiSMao, mat otf, double co, vec OBJParaA, double SFo) {}
+/**
+ * Determination of modulation factor
+ * @param freqComp: off-center frequency component
+ * @param freq: illumination frequency vector
+ * @param OBJParaA: Object power parameters
+ * @param otf: system OTF
+ * @return modulation factor
+ */
+double estimateModulationFactor(cmat freqComp, vec freq, vec OBJParaA, mat otf) {
+    int width = otf.rows();
+    int wo = width / 2;
+    mat X(width, width), Y(width, width);
+    vec line = linspace(0, width - 1, width);
+    for (int i = 0; i < width; ++i) {
+        X.set_row(i, line);
+        Y.set_col(i, line);
+    }
+    cmat Cv = (X - wo) + 1i * (Y - wo);
+    mat Ro = abs(Cv);
+    // magnitude of illumination vector
+    double k2 = sqrt(sum(pow(freq, 2)));
+    // vector along illumination direction
+    complex<double> kv = freq[1] + 1i * freq[0];
+    mat Rp = abs(Cv + kv);
+    // Object spectrum
+    mat OBJp = OBJParaA[0] * pow((Rp + 0), OBJParaA[1]);
+    // illumination vector rounded to the nearest pixel
+    vec k3 = -round(freq);
+
+    OBJp(wo + k3(1), wo + k3(2)) = 0.25 * OBJp(wo + 1 + k3(1), wo + k3(2))
+                                   + 0.25 * OBJp(wo + k3(1), wo + 1 + k3(2))
+                                   + 0.25 * OBJp(wo - 1 + k3(1), wo + k3(2))
+                                   + 0.25 * OBJp(wo + k3(1), wo - 1 + k3(2));
+    // signal spectrum
+    mat SIGap = elem_mult(OBJp, otf);
+    // OTF cut-off frequency
+    double kOtf = otfEdgeF(otf);
+    // frequency beyond which NoisePower estimate to be computed
+    double NoiseFreq = kOtf + 20;
+    // NoisePower determination
+    mat Zo = zeros(width, width);
+    // frequency range over which signal power matching is done to estimate modulation factor
+    mat Zmask = zeros(width, width);
+    for (int i = 0; i < width; ++i) {
+        for (int j = 0; j < width; ++j) {
+            bool r1 = Ro(i, j) > 0.2 * k2;
+            bool r2 = Ro(i, j) < 0.8 * k2;
+            bool r3 = Rp(i, j) > 0.2 * k2;
+            Zmask(i, j) = r1 * r2 * r3;
+            if (Ro(i, j) > NoiseFreq) Zo(i, j) = 1;
+        }
+    }
+
+    cmat nNoise = elem_mult(freqComp, to_cmat(Zo));
+    double noisePower = sum(sum(real(elem_mult(nNoise, conj(nNoise))))) / sum(sum(Zo));
+
+    // Noise free object power computation
+    mat Fpower = real(elem_mult(freqComp, conj(freqComp))) - noisePower;
+    mat fDp = sqrt(abs(Fpower));
+
+    // least square approximation for modulation factor
+    double Mm = sum(sum(elem_mult(elem_mult(SIGap, abs(fDp)), Zmask)));
+    Mm = Mm / sum(sum(elem_mult(pow(SIGap, 2), Zmask)));
+    cout << "estimate modulation factor: " << Mm << endl;
+    return Mm;
+}
+
+/**
+ * Wiener Filtering frequency component
+ * @param fiSMao: noisy frequency component
+ * @param otf: system OTF
+ * @param co: Wiener filter constant [=1, for minimum RMS estimate]
+ * @param OBJParaA: object power parameters
+ * @param SFo: scaling factor (not significant here, so set to 1)
+ * @param isCenter:  Filtering the central or off-center frequency component
+ * @return Wiener Filtered estimate of FiSMao; avg. noise power in FiSMao
+ */
+tuple<cmat, double>
+wienerFilterCenter(cmat fiSMao, mat otf, double co, vec OBJParaA, double SFo, bool isCenter, mat OBJsideP) {
+    int width = fiSMao.rows();
+    int wo = width / 2;
+    mat X(width, width), Y(width, width);
+    vec line = linspace(0, width - 1, width);
+    for (int i = 0; i < width; ++i) {
+        X.set_row(i, line);
+        Y.set_col(i, line);
+    }
+    mat Ro = sqrt(pow((X - wo), 2) + pow((Y - wo), 2));
+    mat otfPower = elem_mult(otf, otf);
+
+    // OTF cut-off frequency
+    double kOtf = otfEdgeF(otf);
+    // NoisePower determination
+    mat Zo = zeros(width, width);
+    // frequency beyond which NoisePower estimate to be computed
+    double NoiseFreq = kOtf + 20;
+    for (int i = 0; i < width; ++i) {
+        for (int j = 0; j < width; ++j) {
+            if (Ro(i, j) > NoiseFreq) Zo(i, j) = 1;
+        }
+    }
+    cmat nNoise = elem_mult(fiSMao, to_cmat(Zo));
+    double noisePower = sum(sum(real(elem_mult(nNoise, conj(nNoise))))) / sum(sum(Zo));
+
+    // Object Power determination
+    mat OBJpower;
+    if (isCenter) {
+        Ro(wo + 1, wo + 1) = 1;
+        OBJpower = OBJParaA[0] * pow(Ro, OBJParaA[1]);
+    } else {
+        OBJpower = OBJsideP;
+    }
+    OBJpower = pow(OBJpower, 2);
+
+    // Wiener Filtering
+    mat temp1 = SFo * otf / noisePower;
+    mat temp2 = SFo * SFo * otfPower / noisePower + co / OBJpower;
+    cmat FiSMaof = elem_div(elem_mult(fiSMao, to_cmat(temp1)), to_cmat(temp2));
+    return make_tuple(FiSMaof, noisePower);
+}
 
 /**
  * obtaining Wiener Filtered estimates of noisy frequency components
- * @param components: noisy estimates of separated frequency components
+ * @param component: noisy estimates of separated frequency component
  * @param OBJParaA: object power parameters
  * @param otf: system OTF
  */
-void wienerFilter(tuple<Vec<cmat>, vec> components, vec OBJParaA, mat otf) {
+tuple<Vec<tuple<cmat, double>>, double> wienerFilter(tuple<Vec<cmat>, vec> component, vec OBJParaA, mat otf) {
     int width = otf.rows();
     int wo = width / 2;
     mat X(width, width), Y(width, width);
@@ -423,28 +565,101 @@ void wienerFilter(tuple<Vec<cmat>, vec> components, vec OBJParaA, mat otf) {
     cmat Cv = (X - wo) + 1i * (Y - wo);
     mat Ro = abs(Cv);
     double kOtf = otfEdgeF(otf);
+    // Wiener Filtering central frequency component
+    double SFo = 1;
+    double co = 1.0;
+    vec kA = get<1>(component);
+    tuple<cmat, double> fDof = wienerFilterCenter(get<0>(component)[0], otf, co, OBJParaA, SFo, true, Ro);
+    // modulation factor determination
+    double Mm = estimateModulationFactor(get<0>(component)[1], kA, OBJParaA, otf);
+    // Duplex power (default)
+    complex<double> kv = kA[1] + 1i * kA[0]; // vector along illumination direction
+    mat Rp = abs(Cv - kv);
+    mat Rm = abs(Cv + kv);
+    mat OBJp = OBJParaA[0] * pow(Rp, OBJParaA[1]);
+    mat OBJm = OBJParaA[0] * pow(Rm, OBJParaA[1]);
+    vec k3 = round(kA);
+    OBJp(wo + k3(1), wo + k3(2)) = 0.25 * OBJp(wo + 1 + k3(1), wo + k3(2))
+                                   + 0.25 * OBJp(wo + k3(1), wo + 1 + k3(2))
+                                   + 0.25 * OBJp(wo - 1 + k3(1), wo + k3(2))
+                                   + 0.25 * OBJp(wo + k3(1), wo - 1 + k3(2));
+    OBJm(wo - k3(1), wo - k3(2)) = 0.25 * OBJm(wo + 1 - k3(1), wo - k3(2))
+                                   + 0.25 * OBJm(wo - k3(1), wo + 1 - k3(2))
+                                   + 0.25 * OBJm(wo - 1 - k3(1), wo - k3(2))
+                                   + 0.25 * OBJm(wo - k3(1), wo - 1 - k3(2));
+    // Filtering side lobes (off-center frequency components)
+    SFo = Mm;
+    tuple<cmat, double> fDpf = wienerFilterCenter(get<0>(component)[1], otf, co, OBJParaA, SFo, false, OBJm);
+    tuple<cmat, double> fDmf = wienerFilterCenter(get<0>(component)[2], otf, co, OBJParaA, SFo, false, OBJp);
+    // doubling Fourier domain size if necessary
+    /* TODO */
+    // Shifting the off-center frequency components to their correct location
+    cmat fDp1 = fft2(elem_mult(to_cmat(ifft2(get<0>(fDpf))),
+                               exp(1i * 2 * pi * (kA(1) / width * (X - wo) + kA(0) / width * (Y - wo)))));
+    cmat fDm1 = fft2(elem_mult(to_cmat(ifft2(get<0>(fDmf))),
+                               exp(-1i * 2 * pi * (kA(1) / width * (X - wo) + kA(0) / width * (Y - wo)))));
+    // Shift induced phase error correction
+    double k2 = sqrt(sum(pow(kA, 2)));
+    // frequency range over which corrective phase is determined
+    mat Zmask = zeros(width, width);
+    for (int i = 0; i < width; ++i) {
+        for (int j = 0; j < width; ++j) {
+            bool r1 = Ro(i, j) < 0.8 * k2;
+            bool r2 = Rp(i, j) < 0.8 * k2;
+            Zmask(i, j) = r1 * r2;
+        }
+    }
+    // corrective phase
+    cvec Angle(1);
+    Angle[0] = sum(sum(elem_mult(elem_mult(get<0>(fDof), conj(fDp1)), to_cmat(Zmask))));
+    double Angle0 = angle(Angle)[0];
+
+    // phase correction
+    cmat fDp2 = exp(+1i * Angle0) * fDp1;
+    cmat fDm2 = exp(-1i * Angle0) * fDm1;
+    Vec<tuple<cmat, double>> freqComps(3);
+    freqComps[0] = fDof;
+    freqComps[1] = make_tuple(fDp2, get<1>(fDpf));
+    freqComps[2] = make_tuple(fDm2, get<1>(fDmf));
+    return make_tuple(freqComps, Mm);
 }
 
 /**
  * 显示SIM矩阵
+ * @param window name
  * @param patterns
  * @param w 图像宽度
- * @param isFreq 是否显示频域图像，1-是/0-否
+ * @param isDivMax 是否除最大值
  */
-void showPatternImage(Vec<mat> patterns, int w, int isFreq) {
-    for (int i = 0; i < 9; ++i) {
+void showPatternImage(string name, Vec<mat> patterns, int w, int isDivMax) {
+    const int MAX_PIXEL = 300;
+    int imgNum = patterns.size();
+    int imgCols = 3;
+    //选择图片最大的一边 将最大的边按比例变为512像素
+    cv::Size imgOriSize = cv::Size(patterns[0].cols(), patterns[0].rows());
+    int imgMaxPixel = max(imgOriSize.height, imgOriSize.width);
+    //获取最大像素变为MAX_PIXEL的比例因子
+    double prop = imgMaxPixel < MAX_PIXEL ? (double) imgMaxPixel / MAX_PIXEL : MAX_PIXEL / (double) imgMaxPixel;
+    cv::Size imgStdSize(imgOriSize.width * prop, imgOriSize.height * prop); //窗口显示的标准图像的Size
+    cv::Mat imgStd; //标准图片
+    cv::Point2i location(0, 0); //坐标点,从(0,0)开始
+    //构建窗口大小 通道与imageVector[0]的通道一样
+    cv::Mat imgWindow(imgStdSize.height * ((imgNum - 1) / imgCols + 1), imgStdSize.width * imgCols,
+                      CV_64F);
+    for (int i = 0; i < imgNum; i++) {
         mat temp = patterns[i];
-        if (isFreq == 1) {
-            temp = real(fft2(patterns[i]));
-            temp = fftshift(temp);
-        } else {
+        if (isDivMax == 1) {
             int tempMax = max(max(temp, 1));
             temp = temp / tempMax;
         }
-        cv::Mat objs(w, w, CV_64F, temp._data());
-        string name = "obj:" + std::to_string(i);
-        cv::imshow(name, objs);
+        cv::Mat obj(w, w, CV_64F, temp._data());
+        location.x = (i % imgCols) * imgStdSize.width;
+        location.y = (i / imgCols) * imgStdSize.height;
+        cv::resize(obj, imgStd, imgStdSize, prop, prop, cv::INTER_AREA); //设置为标准大小
+        imgStd.copyTo(imgWindow(cv::Rect(location, imgStdSize)));
+
     }
+    cv::imshow(name, imgWindow);
 }
 
 

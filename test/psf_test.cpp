@@ -12,7 +12,15 @@ void test_edgeTaper();
 
 int main() {
 //    test_generate_psf();
-    test_edgeTaper();
+//    test_edgeTaper();
+    vec x = "13 21 3";
+    cvec cx(3);
+    cx[0] = 0.4 + 13i;
+    cx[1] = 14 + 3i;
+    cx[2] = 44 + 23i;
+    cout << angle(cx) << endl;
+    x[0] = true * false;
+    cout << x << endl;
     cv::waitKey(0);
     return 0;
 }

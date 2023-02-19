@@ -4,6 +4,8 @@
 #include <iomanip>
 #include <utils/itpp_mat_utils.h>
 #include <utils/sim_utils.h>
+#include <utils/thread_pool.h>
+#include <chrono>
 
 using namespace std;
 using namespace itpp;
@@ -27,24 +29,41 @@ int main() {
 //    testpat.convertTo(testpat,CV_64F);
     mat obj = cvmat2mat(testpat);
     Vec<mat> patterns = simulateSIMImage(k2, obj, otf, modFac, noiseLevel, 1);
-    // showPatternImage(patterns, obj.rows(), 0);
+    showPatternImage("patterns", patterns, obj.rows(), 1);
     // obtaining the noisy estimates of three frequency components
     Vec<tuple<Vec<cmat>, vec>> components(3);
+    ThreadPool pool(3);
+    vector<future<tuple<Vec<cmat>, vec>>> results1;
     for (int i = 0; i < 9; i = i + 3) {
-        cout << "estimates frequency components, index: " << i / 3 << endl;
-        components[i / 3] = separatedSIMComponents2D(patterns, otf, i);
+        results1.emplace_back(pool.enqueue([=] {
+            cout << "estimates frequency components, index: " << i / 3 << endl;
+            return separatedSIMComponents2D(patterns, otf, i);
+        }));
+//        components[i / 3] = separatedSIMComponents2D(patterns, otf, i);
+    }
+    for (int i = 0; i < 3; ++i) {
+        components[i] = results1[i].get();
     }
     // averaging the central frequency components
     cmat fCent = (get<0>(components[0])[0] + get<0>(components[1])[0] + get<0>(components[2])[0]) / 3;
     // Object power parameters determination
     vec OBJParaA = estimateObjectPowerParameters(fCent, otf);
+    // Wiener Filtering the noisy frequency components
+    Vec<mat> filterComps(9);
+    for (int i = 0; i < 3; ++i) {
+        tuple<Vec<tuple<cmat, double>>, double> fComp = wienerFilter(components[i], OBJParaA, otf);
+        for (int j = 0; j < 3; ++j) {
+            filterComps[i * 3 + j] = real(get<0>(get<0>(fComp)[j]));
+        }
+    }
+    showPatternImage("filterComps", filterComps, obj.rows(), 0);
 
     // show raw image
     int objMax = max(max(obj, 1));
     obj = obj / objMax;
     cv::Mat rawObj(w, w, CV_64F, obj._data());
-    cv::imshow("testpat", testpat);
-    cv::imshow("rawObj", rawObj);
+//    cv::imshow("testpat", testpat);
+//    cv::imshow("rawObj", rawObj);
 //    cv::imwrite("objs.tiff", objs);
 //    Mat resimg;
 //    //高斯模糊
