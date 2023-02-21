@@ -70,7 +70,7 @@ Vec<mat> simulateSIMImage(double freq, mat obj, mat otf, double modFac, double n
         patterns[i] = elem_mult(obj, patterns[i]);
         // 与otf卷积
         cmat cotf = to_cmat(otf);
-        patterns[i] = ifft2(elem_mult(fft2(patterns[i]), (fftshift(cotf))));
+        patterns[i] = real(ifft2(elem_mult(fft2(patterns[i]), (fftshift(cotf)))));
         // Gaussian Noisy
         double sigma = std2(patterns[i]) * noiseLevel / 100.0;
         mat noisy = randn(obj.rows(), obj.cols()) * sigma;
@@ -183,7 +183,7 @@ double phaseAutoCorrelationFreqByOpt(vec freq, cmat ftImage, mat otf, bool opt) 
         V.set_col(i, line);
     }
     cmat S1aT = exp(std::complex<double>(0, -2 * pi) * (freq[1] / t * (U - to) + freq[0] / t * (V - to)));
-    S1aT = elem_mult(S1aT, to_cmat(ifft2(fS1aT)));
+    S1aT = elem_mult(S1aT, ifft2(fS1aT));
     cmat fS1aT0 = fft2(S1aT);
 
     complex<double> mA = sum(sum(elem_mult(fS1aT, conj(fS1aT0))));
@@ -205,7 +205,7 @@ vec estimateFreqVector(mat noisyImage, mat otf) {
     mat psfd = pow(otf, 10);
     psfd = fftshift(psfd);
     cmat cpsfd = to_cmat(psfd);
-    psfd = ifft2(cpsfd);
+    psfd = real(ifft2(cpsfd));
     psfd = fftshift(psfd);
     psfd = psfd / max(max(psfd));
     psfd = psfd / sum(sum(psfd));
@@ -391,7 +391,7 @@ tuple<Vec<cmat>, vec> separatedSIMComponents2D(Vec<mat> patterns, mat otf, int i
     // computing PSFe for edge tapering SIM images
     mat psfd = pow(otf, 3);
     psfd = fftshift(psfd);
-    psfd = ifft2(to_cmat(psfd));
+    psfd = real(ifft2(to_cmat(psfd)));
     psfd = fftshift(psfd);
     psfd = psfd / max(max(psfd));
     psfd = psfd / sum(sum(psfd));
@@ -455,10 +455,10 @@ double estimateModulationFactor(cmat freqComp, vec freq, vec OBJParaA, mat otf) 
     // illumination vector rounded to the nearest pixel
     vec k3 = -round(freq);
 
-    OBJp(wo + k3(1), wo + k3(2)) = 0.25 * OBJp(wo + 1 + k3(1), wo + k3(2))
-                                   + 0.25 * OBJp(wo + k3(1), wo + 1 + k3(2))
-                                   + 0.25 * OBJp(wo - 1 + k3(1), wo + k3(2))
-                                   + 0.25 * OBJp(wo + k3(1), wo - 1 + k3(2));
+    OBJp(wo + k3(0), wo + k3(1)) = 0.25 * OBJp(wo + 1 + k3(0), wo + k3(1))
+                                   + 0.25 * OBJp(wo + k3(0), wo + 1 + k3(1))
+                                   + 0.25 * OBJp(wo - 1 + k3(0), wo + k3(1))
+                                   + 0.25 * OBJp(wo + k3(0), wo - 1 + k3(1));
     // signal spectrum
     mat SIGap = elem_mult(OBJp, otf);
     // OTF cut-off frequency
@@ -552,6 +552,7 @@ wienerFilterCenter(cmat fiSMao, mat otf, double co, vec OBJParaA, double SFo, bo
  * @param component: noisy estimates of separated frequency component
  * @param OBJParaA: object power parameters
  * @param otf: system OTF
+ * @return  Wiener Filtered estimates of components; avg. noise power; modulation factor
  */
 tuple<Vec<tuple<cmat, double>>, double> wienerFilter(tuple<Vec<cmat>, vec> component, vec OBJParaA, mat otf) {
     int width = otf.rows();
@@ -579,14 +580,14 @@ tuple<Vec<tuple<cmat, double>>, double> wienerFilter(tuple<Vec<cmat>, vec> compo
     mat OBJp = OBJParaA[0] * pow(Rp, OBJParaA[1]);
     mat OBJm = OBJParaA[0] * pow(Rm, OBJParaA[1]);
     vec k3 = round(kA);
-    OBJp(wo + k3(1), wo + k3(2)) = 0.25 * OBJp(wo + 1 + k3(1), wo + k3(2))
-                                   + 0.25 * OBJp(wo + k3(1), wo + 1 + k3(2))
-                                   + 0.25 * OBJp(wo - 1 + k3(1), wo + k3(2))
-                                   + 0.25 * OBJp(wo + k3(1), wo - 1 + k3(2));
-    OBJm(wo - k3(1), wo - k3(2)) = 0.25 * OBJm(wo + 1 - k3(1), wo - k3(2))
-                                   + 0.25 * OBJm(wo - k3(1), wo + 1 - k3(2))
-                                   + 0.25 * OBJm(wo - 1 - k3(1), wo - k3(2))
-                                   + 0.25 * OBJm(wo - k3(1), wo - 1 - k3(2));
+    OBJp(wo + k3(0), wo + k3(1)) = 0.25 * OBJp(wo + 1 + k3(0), wo + k3(1))
+                                   + 0.25 * OBJp(wo + k3(0), wo + 1 + k3(1))
+                                   + 0.25 * OBJp(wo - 1 + k3(0), wo + k3(1))
+                                   + 0.25 * OBJp(wo + k3(0), wo - 1 + k3(1));
+    OBJm(wo - k3(0), wo - k3(1)) = 0.25 * OBJm(wo + 1 - k3(0), wo - k3(1))
+                                   + 0.25 * OBJm(wo - k3(0), wo + 1 - k3(1))
+                                   + 0.25 * OBJm(wo - 1 - k3(0), wo - k3(1))
+                                   + 0.25 * OBJm(wo - k3(0), wo - 1 - k3(1));
     // Filtering side lobes (off-center frequency components)
     SFo = Mm;
     tuple<cmat, double> fDpf = wienerFilterCenter(get<0>(component)[1], otf, co, OBJParaA, SFo, false, OBJm);
@@ -594,10 +595,9 @@ tuple<Vec<tuple<cmat, double>>, double> wienerFilter(tuple<Vec<cmat>, vec> compo
     // doubling Fourier domain size if necessary
     /* TODO */
     // Shifting the off-center frequency components to their correct location
-    cmat fDp1 = fft2(elem_mult(to_cmat(ifft2(get<0>(fDpf))),
-                               exp(1i * 2 * pi * (kA(1) / width * (X - wo) + kA(0) / width * (Y - wo)))));
-    cmat fDm1 = fft2(elem_mult(to_cmat(ifft2(get<0>(fDmf))),
-                               exp(-1i * 2 * pi * (kA(1) / width * (X - wo) + kA(0) / width * (Y - wo)))));
+    cmat shiftMat = exp(1i * 2 * pi * (kA(1) / width * (X - wo) + kA(0) / width * (Y - wo)));
+    cmat fDp1 = fft2(elem_mult(ifft2(get<0>(fDpf)), shiftMat));
+    cmat fDm1 = fft2(elem_mult(ifft2(get<0>(fDmf)), conj(shiftMat)));
     // Shift induced phase error correction
     double k2 = sqrt(sum(pow(kA, 2)));
     // frequency range over which corrective phase is determined
@@ -622,6 +622,111 @@ tuple<Vec<tuple<cmat, double>>, double> wienerFilter(tuple<Vec<cmat>, vec> compo
     freqComps[1] = make_tuple(fDp2, get<1>(fDpf));
     freqComps[2] = make_tuple(fDm2, get<1>(fDmf));
     return make_tuple(freqComps, Mm);
+}
+
+/**
+ * To obtain signal spectrums corresponding to central and off-center frequency components
+ * @param OBJParaA: object power parameters
+ * @param k2fa: illumination frequency vector
+ * @param otf: system OTF
+ * @param fDIp: one of the off-center frequency component (utilized here only for visual verification of computation)
+ * @return signal spectrum corresponding to frequency component
+ */
+Vec<mat> tripletSNR0(vec OBJParaA, vec k2fa, mat otf, cmat fDIp) {
+    int width = otf.rows();
+    int wo = width / 2;
+    mat X(width, width), Y(width, width);
+    vec line = linspace(0, width - 1, width);
+    for (int i = 0; i < width; ++i) {
+        X.set_row(i, line);
+        Y.set_col(i, line);
+    }
+    cmat Cv = (X - wo) + 1i * (Y - wo);
+    mat Ro = abs(Cv);
+    complex<double> kv = k2fa[1] + 1i * k2fa[0]; // vector along illumination direction
+    mat Rp = abs(Cv - kv);
+    mat Rm = abs(Cv + kv);
+    mat OBJo = OBJParaA[0] * pow(Ro, OBJParaA[1]);
+    mat OBJp = OBJParaA[0] * pow(Rp, OBJParaA[1]);
+    mat OBJm = OBJParaA[0] * pow(Rm, OBJParaA[1]);
+    vec k3 = round(k2fa);
+    OBJo(wo, wo) = 0.25 * OBJo(wo + 1, wo) + 0.25 * OBJo(wo, wo + 1)
+                   + 0.25 * OBJo(wo - 1, wo) + 0.25 * OBJo(wo, wo - 1);
+    OBJp(wo + k3(0), wo + k3(1)) = 0.25 * OBJp(wo + 1 + k3(0), wo + k3(1))
+                                   + 0.25 * OBJp(wo + k3(0), wo + 1 + k3(1))
+                                   + 0.25 * OBJp(wo - 1 + k3(0), wo + k3(1))
+                                   + 0.25 * OBJp(wo + k3(0), wo - 1 + k3(1));
+    OBJm(wo - k3(0), wo - k3(1)) = 0.25 * OBJm(wo + 1 - k3(0), wo - k3(1))
+                                   + 0.25 * OBJm(wo - k3(0), wo + 1 - k3(1))
+                                   + 0.25 * OBJm(wo - 1 - k3(0), wo - k3(1))
+                                   + 0.25 * OBJm(wo - k3(0), wo - 1 - k3(1));
+    // signal spectrum
+    mat SIGao = elem_mult(OBJo, otf);
+    mat SIGap = elem_mult(OBJp, otf);
+    mat SIGam = elem_mult(OBJm, otf);
+    SIGap = circShift(SIGap, -k3);
+    SIGam = circShift(SIGam, k3);
+//    SIGap.
+    Vec<mat> result(3);
+    result(0) = SIGao;
+    result(1) = SIGap;
+    result(2) = SIGam;
+    return result;
+}
+
+/**
+ * To merge all 9 frequency components into one using generalized Wiener Filter
+ * @param freqComp: nine frequency components
+ * @param noiseComp: noise powers corresponding to nine frequency components
+ * @param modFactors: modulation factors for the three illumination orientations
+ * @param freqVectors: illumination frequency vectors for the three illumination orientations
+ * @param OBJParaA: Object spectrum parameters
+ * @param otf: system OTF
+ * @return Fsum: all nine frequency components merged into one using generalised Wiener Filter;
+ * Fperi: six off-center frequency components merged into one using generalised Wiener Filter;
+ * Fcent: averaged of the three central frequency components
+ */
+Vec<cmat> mergeSIMImages(Vec<cmat> freqComp, vec noiseComp, vec modFactors,
+                         Vec<vec> freqVectors, vec OBJParaA, mat otf) {
+    Vec<mat> sigComp(9);
+    for (int i = 0; i < 3; ++i) {
+        sigComp.set_subvector(i * 3,
+                              tripletSNR0(OBJParaA, freqVectors[i], otf, freqComp[i * 3 + 2]));
+    }
+    for (int i = 0; i < 3; ++i) {
+        sigComp[i * 3 + 1] = modFactors[i] * sigComp[i * 3 + 1];
+        sigComp[i * 3 + 2] = modFactors[i] * sigComp[i * 3 + 2];
+    }
+    // Generalized Wiener-Filter computation
+    Vec<mat> snrComps(9);
+    mat ComDeno(snrComps[0].rows(), snrComps[0].cols());
+    mat ComPeri(snrComps[0].rows(), snrComps[0].cols());
+    // all nine frequency components merged into one using generalised Wiener Filter
+    cmat FSum(snrComps[0].rows(), snrComps[0].cols());
+    // six off-center frequency components merged into one using generalised Wiener Filter
+    cmat Fperi(snrComps[0].rows(), snrComps[0].cols());
+    for (int i = 0; i < 9; ++i) {
+        snrComps[i] = pow(sigComp[i], 2) / noiseComp[i];
+        ComDeno += snrComps[i];
+        FSum += elem_mult(freqComp[i], to_cmat(snrComps[i]));
+        // 非低频区域累加
+        if (i != 0 || i != 3 || i != 6) {
+            ComPeri += snrComps[i];
+            Fperi += elem_mult(freqComp[i], to_cmat(snrComps[i]));
+        }
+    }
+    ComDeno = 0.01 + ComDeno;
+    ComPeri = 0.01 + ComPeri;
+    FSum = elem_div(FSum, to_cmat(ComDeno));
+    Fperi = elem_div(Fperi, to_cmat(ComPeri));
+
+    // averaged central frequency component
+    cmat FCent = (freqComp[0] + freqComp[3] + freqComp[6]) / 3;
+    Vec<cmat> result(3);
+    result[0] = FSum;
+    result[1] = Fperi;
+    result[2] = FCent;
+    return result;
 }
 
 /**

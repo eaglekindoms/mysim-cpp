@@ -21,7 +21,17 @@ int main() {
     cout << angle(cx) << endl;
     x[0] = true * false;
     cout << x << endl;
-    cv::waitKey(0);
+    mat a = "1 1 0 0; 1 1 0 0; 0 0 0 0; 0 0 0 0";
+    cout << "a= " << a << endl;
+    mat b = circShift(a, 1, 2);
+    cout << "b= " << b << endl;
+    vec offset = "1,1";
+    b = circShift(a, offset);
+    cout << "b= " << b << endl;
+    offset = "-1,-1";
+    b = circShift(b, offset);
+    cout << "b= " << b << endl;
+//    cv::waitKey(0);
     return 0;
 }
 
@@ -51,7 +61,7 @@ void test_edgeTaper() {
     otf = pow(otf, 10);
     otf = fftshift(otf);
     cmat cotf = to_cmat(otf);
-    otf = ifft2(cotf);
+    otf = real(ifft2(cotf));
     mat psfd = fftshift(otf);
     psfd = psfd / max(max(psfd));
     psfd = psfd / sum(sum(psfd));

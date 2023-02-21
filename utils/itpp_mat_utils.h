@@ -84,16 +84,15 @@ inline cmat fft2(const Mat<T> &input) {
  * @param cx
  * @return
  */
-inline mat ifft2(const cmat &cx) {
+inline cmat ifft2(const cmat &cx) {
 //    cout << "have_fourier_transforms: " << have_fourier_transforms() << endl;
-    cmat x(cx.rows(), cx.cols());
-    mat out(cx.rows(), cx.cols());
+    cmat out(cx.rows(), cx.cols());
     for (int i = 0; i < cx.rows(); ++i) {
         cvec temp = ifft(cx.get_row(i));
-        x.set_row(i, temp);
+        out.set_row(i, temp);
     }
     for (int i = 0; i < cx.cols(); ++i) {
-        vec temp = ifft_real(x.get_col(i));
+        cvec temp = ifft(out.get_col(i));
         out.set_col(i, temp);
     }
     return out;
@@ -207,7 +206,7 @@ inline mat edgeTaper(mat image, mat psf) {
     fixPsf = fftshift(fixPsf);
     cmat otf = fft2(fixPsf);
     cmat fImage = elem_mult(fft2(image), otf);
-    mat blurredI = ifft2(fImage);
+    mat blurredI = real(ifft2(fImage));
     mat result = elem_mult(alpha, image) + elem_mult(1 - alpha, blurredI);
     double maxI = max(max(image));
     double minI = min(min(image));
@@ -219,6 +218,50 @@ inline mat edgeTaper(mat image, mat psf) {
         }
     }
     return result;
+}
+
+/**
+ * 按指定的偏移量和维度循环平移矩阵
+ * @tparam T
+ * @param input
+ * @param offset
+ * @param dim
+ * @return
+ */
+template<class T>
+inline Mat<T> circShift(Mat<T> input, int offset, int dim) {
+    offset = dim == 1 ? offset % input.rows() : offset % input.cols();
+    if (offset < 0) offset = dim == 1 ? input.rows() + offset : input.cols() + offset;
+    if (offset == 0) return input;
+    Mat<T> out(input.rows(), input.cols());
+    if (dim == 1) {
+        mat out1 = input.get_rows(0, input.rows() - offset - 1);
+        mat out2 = input.get_rows(input.rows() - offset, input.rows() - 1);
+        out.set_submatrix(0, 0, out2);
+        out.set_submatrix(offset, 0, out1);
+    }
+    if (dim == 2) {
+        mat out1 = input.get_cols(0, input.cols() - offset - 1);
+        mat out2 = input.get_cols(input.cols() - offset, input.cols() - 1);
+        out.set_submatrix(0, 0, out2);
+        out.set_submatrix(0, offset, out1);
+    }
+    return out;
+}
+
+/**
+ * 按指定的整型向量循环平移矩阵
+ * @tparam T
+ * @param input
+ * @param offset
+ * @return
+ */
+template<class T>
+inline Mat<T> circShift(Mat<T> input, vec offset) {
+    mat out(input.rows(), input.cols());
+    out = circShift(input, offset(0), 1);
+    out = circShift(out, offset(1), 2);
+    return out;
 }
 
 #endif // MAT_UTILS_H

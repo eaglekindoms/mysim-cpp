@@ -29,20 +29,20 @@ int main() {
 //    testpat.convertTo(testpat,CV_64F);
     mat obj = cvmat2mat(testpat);
     Vec<mat> patterns = simulateSIMImage(k2, obj, otf, modFac, noiseLevel, 1);
-    showPatternImage("patterns", patterns, obj.rows(), 1);
+    showPatternImage("raw sim images", patterns, obj.rows(), 1);
     // obtaining the noisy estimates of three frequency components
     Vec<tuple<Vec<cmat>, vec>> components(3);
     ThreadPool pool(3);
-    vector<future<tuple<Vec<cmat>, vec>>> results1;
+    vector<future<tuple<Vec<cmat>, vec>>> poolResult;
     for (int i = 0; i < 9; i = i + 3) {
-        results1.emplace_back(pool.enqueue([=] {
+        poolResult.emplace_back(pool.enqueue([=] {
             cout << "estimates frequency components, index: " << i / 3 << endl;
             return separatedSIMComponents2D(patterns, otf, i);
         }));
 //        components[i / 3] = separatedSIMComponents2D(patterns, otf, i);
     }
     for (int i = 0; i < 3; ++i) {
-        components[i] = results1[i].get();
+        components[i] = poolResult[i].get();
     }
     // averaging the central frequency components
     cmat fCent = (get<0>(components[0])[0] + get<0>(components[1])[0] + get<0>(components[2])[0]) / 3;
@@ -50,20 +50,38 @@ int main() {
     vec OBJParaA = estimateObjectPowerParameters(fCent, otf);
     // Wiener Filtering the noisy frequency components
     Vec<mat> filterComps(9);
+    Vec<cmat> freqComp(9);
+    vec noiseComp(9);
+    vec modFactors(3);
+    Vec<vec> freqVectors(3);
     for (int i = 0; i < 3; ++i) {
         tuple<Vec<tuple<cmat, double>>, double> fComp = wienerFilter(components[i], OBJParaA, otf);
         for (int j = 0; j < 3; ++j) {
             filterComps[i * 3 + j] = real(get<0>(get<0>(fComp)[j]));
+            freqComp[i * 3 + j] = get<0>(get<0>(fComp)[j]);
+            noiseComp[i * 3 + j] = get<1>(get<0>(fComp)[j]);
         }
+        modFactors[i] = get<1>(fComp);
+        freqVectors[i] = get<1>(components[i]);
     }
-    showPatternImage("filterComps", filterComps, obj.rows(), 0);
-
+//    showPatternImage("filtered sim images", filterComps, obj.rows(), 0);
+    Vec<cmat> results = mergeSIMImages(freqComp, noiseComp, modFactors, freqVectors, OBJParaA, otf);
+    Vec<mat> reconstructImages(6);
+    for (int i = 0; i < 3; ++i) {
+        reconstructImages[i] = real(ifft2(fftshift(results[i])));
+        double rMax = max(max(reconstructImages[i], 1));
+        reconstructImages[i] = reconstructImages[i] / rMax;
+        reconstructImages[i + 3] = real(results[i]);
+    }
+    showPatternImage("reconstruction sim images", reconstructImages, obj.rows(), 0);
     // show raw image
     int objMax = max(max(obj, 1));
     obj = obj / objMax;
     cv::Mat rawObj(w, w, CV_64F, obj._data());
+    cv::Mat result(w, w, CV_64F, reconstructImages[0]._data());
 //    cv::imshow("testpat", testpat);
-//    cv::imshow("rawObj", rawObj);
+    cv::imshow("rawObj", rawObj);
+    cv::imshow("result", result);
 //    cv::imwrite("objs.tiff", objs);
 //    Mat resimg;
 //    //高斯模糊
