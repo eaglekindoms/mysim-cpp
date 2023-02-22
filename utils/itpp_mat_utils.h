@@ -29,7 +29,7 @@ mat cvmat2mat(cv::Mat input) {
 }
 
 template<class T>
-inline void minMat(Mat<T> &x, Mat<T> &y) {
+inline void minMat(Mat<T> &x, const Mat<T> &y) {
     int row = x.rows();
     int col = x.cols();
     for (int i = 0; i < row; ++i) {
@@ -42,7 +42,7 @@ inline void minMat(Mat<T> &x, Mat<T> &y) {
 }
 
 template<class T>
-inline Mat<T> fftshift(Mat<T> &x) {
+inline Mat<T> fftshift(const Mat<T> &x) {
     Mat<T> out = x;
     int i = 0, j = 0;
     while ((i < x.rows() / 2) && (j < x.cols() / 2)) {
@@ -99,61 +99,6 @@ inline cmat ifft2(const cmat &cx) {
 }
 
 /**
- * @brief generator psf by besselj functions
- * @param width: generate [W:W] mat
- * @param scale: a parameter used to adjust PSF width
- * @return
- */
-inline mat generatorPSF(int width, double scale) {
-    cout << "================================" << endl;
-    cout << "    generator psf by besselj functions " << endl;
-    cout << "================================" << endl;
-    vec x, y;
-    mat X, Y;
-    x = linspace(0, width - 1, width);
-    for (int i = 0; i < width; i++) {
-        y = concat(x, y);
-    }
-    X = mat(y._data(), width, width);
-    Y = mat(y._data(), width, width, false);
-    mat tempMat = abs(X - width);
-    minMat(X, tempMat);
-    tempMat = abs(Y - width);
-    minMat(Y, tempMat);
-    mat R = elem_mult(X, X) + elem_mult(Y, Y);
-    R = scale * sqrt(R);
-    mat PSF = mat(width, width);
-    for (int i = 0; i < width; ++i) {
-        vec temp = 2 * besselj(1, R.get_row(i) + eps);
-        tempMat.set_row(i, temp);
-    }
-    tempMat = elem_div(tempMat, R + eps);
-    tempMat = abs(tempMat);
-    tempMat = elem_mult(tempMat, tempMat);
-    tempMat = fftshift(tempMat);
-    //    cout << "tempMat = " << tempMat << endl;
-    PSF = tempMat;
-    return PSF;
-}
-
-/**
- * 将psf转换为otf
- * @param psf
- * @return otf
- */
-inline mat PSFToOTF(const mat &psf) {
-    cmat otf = fft2(psf);
-// 归一化矩阵
-    complex<double> otfMax = max(max(abs(otf), 1));
-//    cout << "otfmax = " << otfmax << endl;
-    otf = otf / otfMax;
-    otf = fftshift(otf);
-//    cout << "otf = " << otf << endl;
-    mat aotf = abs(otf);
-    return aotf;
-}
-
-/**
  * 求矩阵标准差
  * @param x 矩阵
  * @return 标准差
@@ -168,11 +113,11 @@ inline double std2(mat &x) {
  * @param image
  * @param psf
  */
-inline mat edgeTaper(mat image, mat psf) {
+inline mat edgeTaper(const mat &image, const mat &inputPsf) {
     // 1. Compute the weighting factor alpha used for image windowing,
     // alpha=1 within the interior of the picture and alpha=0 on the edges.
     // Normalize positive PSF
-    psf = psf / sum(sum(psf));
+    mat psf = inputPsf / sum(sum(inputPsf));
     mat alpha(image.rows(), image.cols());
     Vec<vec> beta(2);
     vec psfProjr = zeros(psf.rows());
@@ -229,7 +174,7 @@ inline mat edgeTaper(mat image, mat psf) {
  * @return
  */
 template<class T>
-inline Mat<T> circShift(Mat<T> input, int offset, int dim) {
+inline Mat<T> circShift(const Mat<T> &input, int offset, int dim) {
     offset = dim == 1 ? offset % input.rows() : offset % input.cols();
     if (offset < 0) offset = dim == 1 ? input.rows() + offset : input.cols() + offset;
     if (offset == 0) return input;
@@ -257,7 +202,7 @@ inline Mat<T> circShift(Mat<T> input, int offset, int dim) {
  * @return
  */
 template<class T>
-inline Mat<T> circShift(Mat<T> input, vec offset) {
+inline Mat<T> circShift(const Mat<T> &input, const vec &offset) {
     mat out(input.rows(), input.cols());
     out = circShift(input, offset(0), 1);
     out = circShift(out, offset(1), 2);

@@ -2,6 +2,8 @@
 #include <itpp/signal/transforms.h>
 #include <utils/itpp_mat_utils.h>
 #include <utils/cv_mat_utils.h>
+#include <utils/sim_parameter.h>
+
 
 using namespace std;
 using namespace itpp;
@@ -10,9 +12,19 @@ void test_generate_psf();
 
 void test_edgeTaper();
 
+void test_itpp();
+
 int main() {
 //    test_generate_psf();
 //    test_edgeTaper();
+    SIMParam simParam;
+    cout << simParam.orientations[1] << endl;
+
+//    cv::waitKey(0);
+    return 0;
+}
+
+void test_itpp() {
     vec x = "13 21 3";
     cvec cx(3);
     cx[0] = 0.4 + 13i;
@@ -31,8 +43,6 @@ int main() {
     offset = "-1,-1";
     b = circShift(b, offset);
     cout << "b= " << b << endl;
-//    cv::waitKey(0);
-    return 0;
 }
 
 void test_generate_psf() {

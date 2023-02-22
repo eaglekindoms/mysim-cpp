@@ -12,6 +12,8 @@
 #include <Eigen/Dense>
 #include <opencv2/opencv.hpp>
 #include <utils/thread_pool.h>
+#include <utils/sim_parameter.h>
+#include <utils/OtfFactory.h>
 
 using Eigen::MatrixXcd;
 
@@ -28,7 +30,8 @@ using namespace itpp;
  * @param addNoise 是否加噪，1-加/0-不加
  * @return 结构光调制图像
  */
-Vec<mat> simulateSIMImage(double freq, mat obj, mat otf, double modFac, double noiseLevel, int addNoise) {
+Vec<mat>
+simulateSIMImage(double freq, mat obj, const OtfFactory &otfFactory, double modFac, double noiseLevel, int addNoise) {
     int width = obj.rows();
     mat X(width, width), Y(width, width);
     vec line = linspace(0, width - 1, width);
@@ -69,8 +72,7 @@ Vec<mat> simulateSIMImage(double freq, mat obj, mat otf, double modFac, double n
         // 像分布
         patterns[i] = elem_mult(obj, patterns[i]);
         // 与otf卷积
-        cmat cotf = to_cmat(otf);
-        patterns[i] = real(ifft2(elem_mult(fft2(patterns[i]), (fftshift(cotf)))));
+        patterns[i] = real(ifft2(elem_mult(fft2(patterns[i]), (fftshift(otfFactory.complexOtf)))));
         // Gaussian Noisy
         double sigma = std2(patterns[i]) * noiseLevel / 100.0;
         mat noisy = randn(obj.rows(), obj.cols()) * sigma;
@@ -79,25 +81,6 @@ Vec<mat> simulateSIMImage(double freq, mat obj, mat otf, double modFac, double n
     }
 //            cout << "patterns " << " = " << patterns[0] << endl
     return patterns;
-}
-
-
-/**
- * 获取otf截止频率
- * @param otf
- * @return 截止频率
- */
-double otfEdgeF(mat otf) {
-    double kOtf;
-    int w = otf.rows();
-    int wo = w / 2;
-    vec otf1 = otf.get_row(wo);
-    double otfMax = max(max(abs(otf)));
-    double otfTruncate = 0.01;
-    for (int i = 0; i < w && abs(otf1[i]) < otfTruncate * otfMax; i++) {
-        kOtf = wo - i;
-    }
-    return kOtf;
 }
 
 /**
@@ -153,16 +136,15 @@ Vec<ivec> approxFreqDuplex(cmat ftImage0, double kOtf) {
  * @param opt: acronym for `OPTIMIZE'; to be set to 1 when this function is used for optimization, or else to 0
  * @return CCop: autocorrelation of ftImage
  */
-double phaseAutoCorrelationFreqByOpt(vec freq, cmat ftImage, mat otf, bool opt) {
+double phaseAutoCorrelationFreqByOpt(vec freq, cmat ftImage, const OtfFactory &otfFactory, bool opt) {
+    mat otf = otfFactory.otf;
     int width = ftImage.rows();
     int wo = width / 2;
-    cmat cotf = to_cmat(otf);
     ftImage = elem_mult(ftImage, to_cmat(1 - pow(otf, 10)));
-    cmat fS1aT = elem_mult(ftImage, conj(cotf));
+    cmat fS1aT = elem_mult(ftImage, conj(otfFactory.complexOtf));
 
-    double kOtf = otfEdgeF(otf);
     bool DoubleMatSize = false;
-    if (2.0 * kOtf > wo) {
+    if (2.0 * otfFactory.cutOff > wo) {
         // true for doubling fourier domain size, false for keeping it unchanged
         DoubleMatSize = true;
     }
@@ -198,8 +180,9 @@ double phaseAutoCorrelationFreqByOpt(vec freq, cmat ftImage, mat otf, bool opt) 
  * @param otf
  * @return 估计的频域向量
  */
-vec estimateFreqVector(mat noisyImage, mat otf) {
+vec estimateFreqVector(mat noisyImage, const OtfFactory &otfFactory) {
     // computing PSFe for edge tapering SIM images
+    mat otf = otfFactory.otf;
     int w = otf.rows();
     int wo = w / 2;
     mat psfd = pow(otf, 10);
@@ -215,16 +198,14 @@ vec estimateFreqVector(mat noisyImage, mat otf) {
     mat noisy_et = edgeTaper(noisyImage, PSFe);
     cmat fNoisy_et = fft2(noisy_et);
     fNoisy_et = fftshift(fNoisy_et);
-    int kOtf = otfEdgeF(otf);
-    cout << "kOtf: " << kOtf << endl;
-    Vec<ivec> freqVector = approxFreqDuplex(fNoisy_et, kOtf);
+    Vec<ivec> freqVector = approxFreqDuplex(fNoisy_et, otfFactory.cutOff);
     cout << "freqVector: " << freqVector << endl;
     cmat fS1aTnoisy = fft2(noisyImage);
     fS1aTnoisy = fftshift(fS1aTnoisy);
     cout << "==== fminsearch ====" << endl;
     auto phaseKai2opt0 = [=](const std::array<double, 2> &x) -> double {
         vec freq(x.data(), 2);
-        return phaseAutoCorrelationFreqByOpt(freq, fS1aTnoisy, otf, true);
+        return phaseAutoCorrelationFreqByOpt(freq, fS1aTnoisy, otfFactory, true);
     };
     std::array<double, 2> start = {double(freqVector[0].get(0)), double(freqVector[0].get(1))};
     std::array<double, 2> step = {0.1, 0.1};
@@ -284,7 +265,8 @@ double estimatePhaseShift(mat noisyImage, vec freq) {
  * @param otf: system OTF
  * @return 功率谱参数
  */
-vec estimateObjectPowerParameters(cmat fCent, mat otf) {
+vec estimateObjectPowerParameters(cmat fCent, const OtfFactory &otfFactory) {
+    mat otf = otfFactory.otf;
     int width = fCent.rows();
     int wo = width / 2;
     mat X(width, width), Y(width, width);
@@ -295,12 +277,11 @@ vec estimateObjectPowerParameters(cmat fCent, mat otf) {
     }
     cmat Cv = (X - wo) + 1i * (Y - wo);
     mat Ro = abs(Cv);
-    double kOtf = otfEdgeF(otf);
     mat Zm = zeros(width, width);
     for (int i = 0; i < width; ++i) {
         for (int j = 0; j < width; ++j) {
-            bool r1 = Ro(i, j) > 0.3 * kOtf;
-            bool r2 = Ro(i, j) < 0.4 * kOtf;
+            bool r1 = Ro(i, j) > 0.3 * otfFactory.cutOff;
+            bool r2 = Ro(i, j) < 0.4 * otfFactory.cutOff;
             Zm(i, j) = r1 * r2;
         }
     }
@@ -315,11 +296,11 @@ vec estimateObjectPowerParameters(cmat fCent, mat otf) {
     // NoisePower determination
     mat Zo = zeros(width, width);
     // frequency beyond which NoisePower estimate to be computed
-    double NoiseFreq = kOtf + 20;
+    double NoiseFreq = otfFactory.cutOff + 20;
     for (int i = 0; i < width; ++i) {
         for (int j = 0; j < width; ++j) {
-            bool r1 = Ro(i, j) < 0.75 * kOtf;
-            bool r2 = Ro(i, j) > 0.25 * kOtf;
+            bool r1 = Ro(i, j) < 0.75 * otfFactory.cutOff;
+            bool r2 = Ro(i, j) > 0.25 * otfFactory.cutOff;
             Zloop(i, j) = r1 * r2;
             if (Ro(i, j) > NoiseFreq) Zo(i, j) = 1;
         }
@@ -354,19 +335,19 @@ vec estimateObjectPowerParameters(cmat fCent, mat otf) {
 }
 
 /**
- * obtaining the noisy estimates of three frequency components
- * @param patterns: raw SIM images
- * @param otf: system OTF
- * @param index: phase index
- * @return noisy estimates of separated frequency components; avg. illumination frequency vector
+ * estimate freq vector and phase of three frequency components
+ * @param patterns: raw sim images
+ * @param otf: system otf
+ * @param index: orientation index
+ * @return: avg.freq and three phase shift
  */
-tuple<Vec<cmat>, vec> separatedSIMComponents2D(Vec<mat> patterns, mat otf, int index) {
+tuple<vec, vec> estimateSIMParameters(Vec<mat> patterns, const OtfFactory &otfFactory, int index) {
     cout << "start estimate freq" << endl;
     ThreadPool pool(3);
     vector<future<vec>> results1;
     for (int i = 0; i < 3; i++) {
         results1.emplace_back(pool.enqueue([=] {
-            return estimateFreqVector(patterns[index + i], otf);
+            return estimateFreqVector(patterns[index + i], otfFactory);
         }));
     }
     vec freq = zeros(2);
@@ -388,6 +369,21 @@ tuple<Vec<cmat>, vec> separatedSIMComponents2D(Vec<mat> patterns, mat otf, int i
     }
     phase = phase * 180 / pi;
     cout << "three order phase: " << phase << endl;
+    return make_tuple(freq, phase);
+}
+
+/**
+ * obtaining the noisy estimates of three frequency components
+ * @param patterns: raw SIM images
+ * @param otf: system OTF
+ * @param index: phase index
+ * @return noisy estimates of separated frequency components; avg. illumination frequency vector
+ */
+tuple<Vec<cmat>, vec> separatedSIMComponents2D(Vec<mat> patterns, const OtfFactory &otfFactory, int index) {
+    mat otf = otfFactory.otf;
+    tuple<vec, vec> parameters = estimateSIMParameters(patterns, otfFactory, index);
+    vec freq = get<0>(parameters);
+    vec phase = get<1>(parameters);
     // computing PSFe for edge tapering SIM images
     mat psfd = pow(otf, 3);
     psfd = fftshift(psfd);
@@ -434,7 +430,8 @@ tuple<Vec<cmat>, vec> separatedSIMComponents2D(Vec<mat> patterns, mat otf, int i
  * @param otf: system OTF
  * @return modulation factor
  */
-double estimateModulationFactor(cmat freqComp, vec freq, vec OBJParaA, mat otf) {
+double estimateModulationFactor(cmat freqComp, vec freq, vec OBJParaA, const OtfFactory &otfFactory) {
+    mat otf = otfFactory.otf;
     int width = otf.rows();
     int wo = width / 2;
     mat X(width, width), Y(width, width);
@@ -461,10 +458,8 @@ double estimateModulationFactor(cmat freqComp, vec freq, vec OBJParaA, mat otf) 
                                    + 0.25 * OBJp(wo + k3(0), wo - 1 + k3(1));
     // signal spectrum
     mat SIGap = elem_mult(OBJp, otf);
-    // OTF cut-off frequency
-    double kOtf = otfEdgeF(otf);
     // frequency beyond which NoisePower estimate to be computed
-    double NoiseFreq = kOtf + 20;
+    double NoiseFreq = otfFactory.cutOff + 20;
     // NoisePower determination
     mat Zo = zeros(width, width);
     // frequency range over which signal power matching is done to estimate modulation factor
@@ -504,7 +499,9 @@ double estimateModulationFactor(cmat freqComp, vec freq, vec OBJParaA, mat otf) 
  * @return Wiener Filtered estimate of FiSMao; avg. noise power in FiSMao
  */
 tuple<cmat, double>
-wienerFilterCenter(cmat fiSMao, mat otf, double co, vec OBJParaA, double SFo, bool isCenter, mat OBJsideP) {
+wienerFilterCenter(cmat fiSMao, const OtfFactory &otfFactory, double co, vec OBJParaA, double SFo, bool isCenter,
+                   mat OBJsideP) {
+    mat otf = otfFactory.otf;
     int width = fiSMao.rows();
     int wo = width / 2;
     mat X(width, width), Y(width, width);
@@ -515,13 +512,10 @@ wienerFilterCenter(cmat fiSMao, mat otf, double co, vec OBJParaA, double SFo, bo
     }
     mat Ro = sqrt(pow((X - wo), 2) + pow((Y - wo), 2));
     mat otfPower = elem_mult(otf, otf);
-
-    // OTF cut-off frequency
-    double kOtf = otfEdgeF(otf);
     // NoisePower determination
     mat Zo = zeros(width, width);
     // frequency beyond which NoisePower estimate to be computed
-    double NoiseFreq = kOtf + 20;
+    double NoiseFreq = otfFactory.cutOff + 20;
     for (int i = 0; i < width; ++i) {
         for (int j = 0; j < width; ++j) {
             if (Ro(i, j) > NoiseFreq) Zo(i, j) = 1;
@@ -554,7 +548,9 @@ wienerFilterCenter(cmat fiSMao, mat otf, double co, vec OBJParaA, double SFo, bo
  * @param otf: system OTF
  * @return  Wiener Filtered estimates of components; avg. noise power; modulation factor
  */
-tuple<Vec<tuple<cmat, double>>, double> wienerFilter(tuple<Vec<cmat>, vec> component, vec OBJParaA, mat otf) {
+tuple<Vec<tuple<cmat, double>>, double>
+wienerFilter(tuple<Vec<cmat>, vec> component, vec OBJParaA, const OtfFactory &otfFactory) {
+    mat otf = otfFactory.otf;
     int width = otf.rows();
     int wo = width / 2;
     mat X(width, width), Y(width, width);
@@ -565,14 +561,13 @@ tuple<Vec<tuple<cmat, double>>, double> wienerFilter(tuple<Vec<cmat>, vec> compo
     }
     cmat Cv = (X - wo) + 1i * (Y - wo);
     mat Ro = abs(Cv);
-    double kOtf = otfEdgeF(otf);
     // Wiener Filtering central frequency component
     double SFo = 1;
     double co = 1.0;
     vec kA = get<1>(component);
-    tuple<cmat, double> fDof = wienerFilterCenter(get<0>(component)[0], otf, co, OBJParaA, SFo, true, Ro);
+    tuple<cmat, double> fDof = wienerFilterCenter(get<0>(component)[0], otfFactory, co, OBJParaA, SFo, true, Ro);
     // modulation factor determination
-    double Mm = estimateModulationFactor(get<0>(component)[1], kA, OBJParaA, otf);
+    double Mm = estimateModulationFactor(get<0>(component)[1], kA, OBJParaA, otfFactory);
     // Duplex power (default)
     complex<double> kv = kA[1] + 1i * kA[0]; // vector along illumination direction
     mat Rp = abs(Cv - kv);
@@ -590,8 +585,8 @@ tuple<Vec<tuple<cmat, double>>, double> wienerFilter(tuple<Vec<cmat>, vec> compo
                                    + 0.25 * OBJm(wo - k3(0), wo - 1 - k3(1));
     // Filtering side lobes (off-center frequency components)
     SFo = Mm;
-    tuple<cmat, double> fDpf = wienerFilterCenter(get<0>(component)[1], otf, co, OBJParaA, SFo, false, OBJm);
-    tuple<cmat, double> fDmf = wienerFilterCenter(get<0>(component)[2], otf, co, OBJParaA, SFo, false, OBJp);
+    tuple<cmat, double> fDpf = wienerFilterCenter(get<0>(component)[1], otfFactory, co, OBJParaA, SFo, false, OBJm);
+    tuple<cmat, double> fDmf = wienerFilterCenter(get<0>(component)[2], otfFactory, co, OBJParaA, SFo, false, OBJp);
     // doubling Fourier domain size if necessary
     /* TODO */
     // Shifting the off-center frequency components to their correct location
@@ -682,8 +677,8 @@ Vec<mat> tripletSNR0(vec OBJParaA, vec k2fa, mat otf, cmat fDIp) {
  * @param freqVectors: illumination frequency vectors for the three illumination orientations
  * @param OBJParaA: Object spectrum parameters
  * @param otf: system OTF
- * @return Fsum: all nine frequency components merged into one using generalised Wiener Filter;
- * Fperi: six off-center frequency components merged into one using generalised Wiener Filter;
+ * @return Fsum: all nine frequency components merged into one using generalised Wiener Filter;\n
+ * Fperi: six off-center frequency components merged into one using generalised Wiener Filter;\n
  * Fcent: averaged of the three central frequency components
  */
 Vec<cmat> mergeSIMImages(Vec<cmat> freqComp, vec noiseComp, vec modFactors,
