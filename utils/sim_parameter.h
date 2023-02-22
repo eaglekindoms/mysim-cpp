@@ -16,9 +16,12 @@ using namespace std;
 class Orientation {
 public:
     int orientationIndex;
-    double freqX = 0, freqY = 0;
+    vec freq = zeros(2);
     double phaseShift[3] = {0};
     double modulationFactor = 0;
+    double noiseComp[3] = {0};
+
+    Orientation() {}
 
     Orientation(int index) {
         orientationIndex = index;
@@ -42,8 +45,8 @@ public:
 
 std::ostream &operator<<(std::ostream &os, const Orientation &ori) {
     os << '[' << "orientationIndex = " << ori.orientationIndex;
-    os << ", freqX = " << ori.freqX;
-    os << ", freqY = " << ori.freqY;
+    os << ", freqX = " << ori.freq[0];
+    os << ", freqY = " << ori.freq[1];
     os << ", phaseShift = " << ori.phaseShift[0] << ", " << ori.phaseShift[1] << ", " << ori.phaseShift[2];
     os << ", modulationFactor = " << ori.modulationFactor << ']';
     return os;

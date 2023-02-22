@@ -23,7 +23,7 @@ using namespace itpp;
 /**
  *
  * @param freq 结构光频率
- * @param obj 物象
+ * @param obj 物像
  * @param otf 系统otf
  * @param modFac 调制因子
  * @param noiseLevel 加噪等级
@@ -60,14 +60,19 @@ simulateSIMImage(double freq, mat obj, const OtfFactory &otfFactory, double modF
         phaseShift[i] = ((i % 3) * 2.0 * pi / 3.0) + nn(i);
     }
     // 结构光场像分布
-    Vec<mat> patterns(9);
-    for (int i = 0, j = 0; i < 9; ++i) {
-        // 照明矢量
-        patterns[i] = intensity +
-                      intensity * modFac *
-                      cos(2.0 * pi * (kfreq(j, 0) * (X - width / 2)
-                                      + kfreq(j, 1) * (Y - width / 2))
-                          + phaseShift[i]);
+    Vec<mat> patterns(10);
+    for (int i = 0, j = 0; i < 10; ++i) {
+        if (i == 9) {
+            // 均匀照明光场
+            patterns[i] = intensity * ones(width, width);
+        } else {
+            // 结构照明矢量
+            patterns[i] = intensity +
+                          intensity * modFac *
+                          cos(2.0 * pi * (kfreq(j, 0) * (X - width / 2)
+                                          + kfreq(j, 1) * (Y - width / 2))
+                              + phaseShift[i]);
+        }
         if ((i + 1) % 3 == 0)j++;
         // 像分布
         patterns[i] = elem_mult(obj, patterns[i]);
@@ -337,11 +342,12 @@ vec estimateObjectPowerParameters(cmat fCent, const OtfFactory &otfFactory) {
 /**
  * estimate freq vector and phase of three frequency components
  * @param patterns: raw sim images
+ * @param simParam: sim param needed to be updated
  * @param otf: system otf
  * @param index: orientation index
  * @return: avg.freq and three phase shift
  */
-tuple<vec, vec> estimateSIMParameters(Vec<mat> patterns, const OtfFactory &otfFactory, int index) {
+Orientation estimateSIMParameters(Vec<mat> patterns, const OtfFactory &otfFactory, int index) {
     cout << "start estimate freq" << endl;
     ThreadPool pool(3);
     vector<future<vec>> results1;
@@ -355,6 +361,8 @@ tuple<vec, vec> estimateSIMParameters(Vec<mat> patterns, const OtfFactory &otfFa
         freq += result.get();
     }
     freq = freq / 3.0;
+    Orientation ori(index);
+    ori.freq = freq;
     cout << "mean of three order freq: " << freq << endl;
     cout << "start estimate phase" << endl;
     vec phase(3);
@@ -365,25 +373,24 @@ tuple<vec, vec> estimateSIMParameters(Vec<mat> patterns, const OtfFactory &otfFa
         }));
     }
     for (int i = 0; i < 3; ++i) {
-        phase[i] = results2[i].get();
+        phase[i] = results2[i].get() * 180 / pi;
+        ori.phaseShift[i] = phase[i];
     }
-    phase = phase * 180 / pi;
     cout << "three order phase: " << phase << endl;
-    return make_tuple(freq, phase);
+    return ori;
 }
 
 /**
  * obtaining the noisy estimates of three frequency components
  * @param patterns: raw SIM images
+ * @param simParam: sim param needed to be updated
  * @param otf: system OTF
  * @param index: phase index
- * @return noisy estimates of separated frequency components; avg. illumination frequency vector
+ * @return noisy estimates of separated frequency components, and Orientation param
  */
-tuple<Vec<cmat>, vec> separatedSIMComponents2D(Vec<mat> patterns, const OtfFactory &otfFactory, int index) {
+tuple<Vec<cmat>, Orientation> separatedSIMComponents2D(Vec<mat> patterns, const OtfFactory &otfFactory, int index) {
     mat otf = otfFactory.otf;
-    tuple<vec, vec> parameters = estimateSIMParameters(patterns, otfFactory, index);
-    vec freq = get<0>(parameters);
-    vec phase = get<1>(parameters);
+    Orientation ori = estimateSIMParameters(patterns, otfFactory, index);
     // computing PSFe for edge tapering SIM images
     mat psfd = pow(otf, 3);
     psfd = fftshift(psfd);
@@ -407,8 +414,8 @@ tuple<Vec<cmat>, vec> separatedSIMComponents2D(Vec<mat> patterns, const OtfFacto
     MatrixXcd M(3, 3);
     for (int k = 0; k < 3; ++k) {
         M(k, 0) = 1.0;
-        M(k, 1) = 0.5 * MF * exp(-1i * phase[k]);
-        M(k, 2) = 0.5 * MF * exp(+1i * phase[k]);
+        M(k, 1) = 0.5 * MF * exp(-1i * ori.phaseShift[k]);
+        M(k, 2) = 0.5 * MF * exp(+1i * ori.phaseShift[k]);
     }
     // Separate the components
     cout << "Separate the components" << endl;
@@ -419,7 +426,7 @@ tuple<Vec<cmat>, vec> separatedSIMComponents2D(Vec<mat> patterns, const OtfFacto
                        + Minv(i, 1) * ftNoisyImages[1]
                        + Minv(i, 2) * ftNoisyImages[2];
     }
-    return make_tuple(unmixedFT, freq);
+    return make_tuple(unmixedFT, ori);
 }
 
 /**
@@ -498,9 +505,9 @@ double estimateModulationFactor(cmat freqComp, vec freq, vec OBJParaA, const Otf
  * @param isCenter:  Filtering the central or off-center frequency component
  * @return Wiener Filtered estimate of FiSMao; avg. noise power in FiSMao
  */
-tuple<cmat, double>
+cmat
 wienerFilterCenter(cmat fiSMao, const OtfFactory &otfFactory, double co, vec OBJParaA, double SFo, bool isCenter,
-                   mat OBJsideP) {
+                   mat OBJsideP, Orientation &ori, int phaseIndex) {
     mat otf = otfFactory.otf;
     int width = fiSMao.rows();
     int wo = width / 2;
@@ -538,7 +545,8 @@ wienerFilterCenter(cmat fiSMao, const OtfFactory &otfFactory, double co, vec OBJ
     mat temp1 = SFo * otf / noisePower;
     mat temp2 = SFo * SFo * otfPower / noisePower + co / OBJpower;
     cmat FiSMaof = elem_div(elem_mult(fiSMao, to_cmat(temp1)), to_cmat(temp2));
-    return make_tuple(FiSMaof, noisePower);
+    ori.noiseComp[phaseIndex] = noisePower;
+    return FiSMaof;
 }
 
 /**
@@ -548,8 +556,8 @@ wienerFilterCenter(cmat fiSMao, const OtfFactory &otfFactory, double co, vec OBJ
  * @param otf: system OTF
  * @return  Wiener Filtered estimates of components; avg. noise power; modulation factor
  */
-tuple<Vec<tuple<cmat, double>>, double>
-wienerFilter(tuple<Vec<cmat>, vec> component, vec OBJParaA, const OtfFactory &otfFactory) {
+Vec<cmat> wienerFilter(Vec<cmat> component, SIMParam &simParam,
+                       vec OBJParaA, const OtfFactory &otfFactory, int index) {
     mat otf = otfFactory.otf;
     int width = otf.rows();
     int wo = width / 2;
@@ -564,10 +572,13 @@ wienerFilter(tuple<Vec<cmat>, vec> component, vec OBJParaA, const OtfFactory &ot
     // Wiener Filtering central frequency component
     double SFo = 1;
     double co = 1.0;
-    vec kA = get<1>(component);
-    tuple<cmat, double> fDof = wienerFilterCenter(get<0>(component)[0], otfFactory, co, OBJParaA, SFo, true, Ro);
+    vec kA = simParam.orientations[index].freq;
+    cmat fDof = wienerFilterCenter(component[0], otfFactory,
+                                   co, OBJParaA, SFo, true, Ro,
+                                   simParam.orientations[index], 0);
     // modulation factor determination
-    double Mm = estimateModulationFactor(get<0>(component)[1], kA, OBJParaA, otfFactory);
+    double Mm = estimateModulationFactor(component[1], kA, OBJParaA, otfFactory);
+    simParam.orientations[index].modulationFactor = Mm;
     // Duplex power (default)
     complex<double> kv = kA[1] + 1i * kA[0]; // vector along illumination direction
     mat Rp = abs(Cv - kv);
@@ -585,14 +596,18 @@ wienerFilter(tuple<Vec<cmat>, vec> component, vec OBJParaA, const OtfFactory &ot
                                    + 0.25 * OBJm(wo - k3(0), wo - 1 - k3(1));
     // Filtering side lobes (off-center frequency components)
     SFo = Mm;
-    tuple<cmat, double> fDpf = wienerFilterCenter(get<0>(component)[1], otfFactory, co, OBJParaA, SFo, false, OBJm);
-    tuple<cmat, double> fDmf = wienerFilterCenter(get<0>(component)[2], otfFactory, co, OBJParaA, SFo, false, OBJp);
+    cmat fDpf = wienerFilterCenter(component[1], otfFactory,
+                                   co, OBJParaA, SFo, false, OBJm,
+                                   simParam.orientations[index], 1);
+    cmat fDmf = wienerFilterCenter(component[2], otfFactory,
+                                   co, OBJParaA, SFo, false, OBJp,
+                                   simParam.orientations[index], 2);
     // doubling Fourier domain size if necessary
     /* TODO */
     // Shifting the off-center frequency components to their correct location
     cmat shiftMat = exp(1i * 2 * pi * (kA(1) / width * (X - wo) + kA(0) / width * (Y - wo)));
-    cmat fDp1 = fft2(elem_mult(ifft2(get<0>(fDpf)), shiftMat));
-    cmat fDm1 = fft2(elem_mult(ifft2(get<0>(fDmf)), conj(shiftMat)));
+    cmat fDp1 = fft2(elem_mult(ifft2(fDpf), shiftMat));
+    cmat fDm1 = fft2(elem_mult(ifft2(fDmf), conj(shiftMat)));
     // Shift induced phase error correction
     double k2 = sqrt(sum(pow(kA, 2)));
     // frequency range over which corrective phase is determined
@@ -606,17 +621,17 @@ wienerFilter(tuple<Vec<cmat>, vec> component, vec OBJParaA, const OtfFactory &ot
     }
     // corrective phase
     cvec Angle(1);
-    Angle[0] = sum(sum(elem_mult(elem_mult(get<0>(fDof), conj(fDp1)), to_cmat(Zmask))));
+    Angle[0] = sum(sum(elem_mult(elem_mult(fDof, conj(fDp1)), to_cmat(Zmask))));
     double Angle0 = angle(Angle)[0];
 
     // phase correction
     cmat fDp2 = exp(+1i * Angle0) * fDp1;
     cmat fDm2 = exp(-1i * Angle0) * fDm1;
-    Vec<tuple<cmat, double>> freqComps(3);
+    Vec<cmat> freqComps(3);
     freqComps[0] = fDof;
-    freqComps[1] = make_tuple(fDp2, get<1>(fDpf));
-    freqComps[2] = make_tuple(fDm2, get<1>(fDmf));
-    return make_tuple(freqComps, Mm);
+    freqComps[1] = fDp2;
+    freqComps[2] = fDm2;
+    return freqComps;
 }
 
 /**
@@ -681,16 +696,19 @@ Vec<mat> tripletSNR0(vec OBJParaA, vec k2fa, mat otf, cmat fDIp) {
  * Fperi: six off-center frequency components merged into one using generalised Wiener Filter;\n
  * Fcent: averaged of the three central frequency components
  */
-Vec<cmat> mergeSIMImages(Vec<cmat> freqComp, vec noiseComp, vec modFactors,
-                         Vec<vec> freqVectors, vec OBJParaA, mat otf) {
+Vec<cmat> mergeSIMImages(Vec<cmat> freqComp, SIMParam simParam, vec OBJParaA, mat otf) {
     Vec<mat> sigComp(9);
+    vec noiseComp(9);
     for (int i = 0; i < 3; ++i) {
         sigComp.set_subvector(i * 3,
-                              tripletSNR0(OBJParaA, freqVectors[i], otf, freqComp[i * 3 + 2]));
+                              tripletSNR0(OBJParaA, simParam.orientations[i].freq, otf, freqComp[i * 3 + 2]));
     }
     for (int i = 0; i < 3; ++i) {
-        sigComp[i * 3 + 1] = modFactors[i] * sigComp[i * 3 + 1];
-        sigComp[i * 3 + 2] = modFactors[i] * sigComp[i * 3 + 2];
+        sigComp[i * 3 + 1] = simParam.orientations[i].modulationFactor * sigComp[i * 3 + 1];
+        sigComp[i * 3 + 2] = simParam.orientations[i].modulationFactor * sigComp[i * 3 + 2];
+        for (int j = 0; j < 3; ++j) {
+            noiseComp[i * 3 + j] = simParam.orientations[i].noiseComp[j];
+        }
     }
     // Generalized Wiener-Filter computation
     Vec<mat> snrComps(9);
