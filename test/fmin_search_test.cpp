@@ -28,7 +28,7 @@
 
 #include <iostream>
 #include <utils/optimizer.h>
-
+#include <utils/neldermead.h>
 #include <itpp/itoptim.h>
 
 using namespace std;
@@ -41,6 +41,19 @@ double rosenbrock(const std::array<double, 2> &x) {
     return F;
 }
 
+double rosen(const vec &x) {
+//    double f1 = x[1] - sqr(x[0]), f2 = 1 - x[0];
+//    double F = 50 * sqr(f1) + 0.5 * sqr(f2) + 0.0;
+    double F = 100.0 * (x[1] - x[0] * x[0]) * (x[1] - x[0] * x[0]) + (3 - x[0]) * (3 - x[0]);
+    return F;
+}
+
+double rosenbrock1(const std::vector<double> &x) {
+//    double f1 = x[1] - sqr(x[0]), f2 = 1 - x[0];
+//    double F = 50 * sqr(f1) + 0.5 * sqr(f2) + 0.0;
+    double F = 100.0 * (x[1] - x[0] * x[0]) * (x[1] - x[0] * x[0]) + (3 - x[0]) * (3 - x[0]);
+    return F;
+}
 // gradient 是func的导数函数
 
 
@@ -59,6 +72,37 @@ int main(void) {
             step
     );
     std::cout << "Found minimum: " << std::fixed << result.xmin[0] << ' ' << result.xmin[1] << std::endl;
-    cout << "step:" << result.icount << endl;
+    std::vector<double> start1;
+    start1.push_back(0.5);
+    start1.push_back(0.5);
+//    NelderMeadSimplex simplex(rosenbrock1, start1);
+//    std::cout << simplex.bestVertex().coordinate_[0] <<", "<< simplex.bestVertex().coordinate_[0] << std::endl;
+//    std::cout << simplex.bestVertex().value_;
+    RealFunctionvalueAtCoordinate bestVertex = nelderMead(rosenbrock1, start1);
+    std::cout << bestVertex.coordinate_[0] << ", " << bestVertex.coordinate_[1] << std::endl;
+    std::cout << bestVertex.value_;
+//    cout << "step:" << result.icount << endl;
+//    Optimset optimset;
+//    optimset.tolX = 0.0001;
+//    optimset.tolF = 0.0001;
+//    optimset.max_iter = 1000;
+//    optimset.max_eval = 1000;
+//    optimset.verbose = 0;
+//    vec s1 = "0.0, 0.0";
+//    auto x = nelder_mead(2, s1, rosen, optimset);
+//    printf("argmin found at point: ");
+//    cout << "result x: " << x.x << ", fx: " << x.fx << endl;
     return 0;
 }
+//    Optimset optimset;
+//    optimset.tolX = 0.0001;
+//    optimset.tolF = 0.0001;
+//    optimset.max_iter = 500;
+//    optimset.max_eval = 500;
+//    optimset.verbose = 0;
+//    auto phaseKai2opt1 = [&fS1aTnoisy, &otf](const vec &freq) -> double {
+//        return phaseAutoCorrelationFreqByOpt(freq, fS1aTnoisy, otf, true);
+//    };
+//    auto x = nelder_mead(2, reinterpret_cast<vec &>(freqVector[0]), phaseKai2opt1, optimset);
+//    printf("argmin found at point: ");
+//    cout << "result x: " << x.x << ", fx: " << x.fx << endl;

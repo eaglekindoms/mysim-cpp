@@ -14,6 +14,7 @@
 #include <utils/thread_pool.h>
 #include <utils/sim_parameter.h>
 #include <utils/OtfFactory.h>
+#include <utils/neldermead.h>
 
 using Eigen::MatrixXcd;
 
@@ -208,24 +209,32 @@ vec estimateFreqVector(mat noisyImage, const OtfFactory &otfFactory) {
     cmat fS1aTnoisy = fft2(noisyImage);
     fS1aTnoisy = fftshift(fS1aTnoisy);
     cout << "==== fminsearch ====" << endl;
-    auto phaseKai2opt0 = [=](const std::array<double, 2> &x) -> double {
+//    auto phaseKai2opt0 = [=](const std::array<double, 2> &x) -> double {
+//        vec freq(x.data(), 2);
+//        return phaseAutoCorrelationFreqByOpt(freq, fS1aTnoisy, otfFactory, true);
+//    };
+//    std::array<double, 2> start = {double(freqVector[0].get(0)), double(freqVector[0].get(1))};
+//    std::array<double, 2> step = {0.1, 0.1};
+    // very time-consuming, need to be optimized
+//    nelder_mead_result<double, 2> result = nelder_mead<double, 2>(
+//            phaseKai2opt0,
+//            start,
+//            1.0e-25, // the terminating limit for the variance of function values
+//            step, 1, 500
+//    );
+//    std::cout << "fminsearch Found minimum freq: " << std::fixed << result.xmin[0] << ' ' << result.xmin[1]
+//              << std::endl;
+//    cout << "fminsearch step: " << result.icount << endl;
+//    return vec(result.xmin.data(), 2);
+    vector<double> first;
+    first.push_back(freqVector[0].get(0));
+    first.push_back(freqVector[0].get(1));
+    auto phaseKai2opt1 = [=](const std::vector<double> &x) -> double {
         vec freq(x.data(), 2);
         return phaseAutoCorrelationFreqByOpt(freq, fS1aTnoisy, otfFactory, true);
     };
-    std::array<double, 2> start = {double(freqVector[0].get(0)), double(freqVector[0].get(1))};
-    std::array<double, 2> step = {0.1, 0.1};
-    // very time-consuming, need to be optimized
-    nelder_mead_result<double, 2> result = nelder_mead<double, 2>(
-            phaseKai2opt0,
-            start,
-            1.0e-25, // the terminating limit for the variance of function values
-            step, 1, 500
-    );
-    std::cout << "fminsearch Found minimum freq: " << std::fixed << result.xmin[0] << ' ' << result.xmin[1]
-              << std::endl;
-    cout << "fminsearch step: " << result.icount << endl;
-    return vec(result.xmin.data(), 2);
-
+    RealFunctionvalueAtCoordinate result = nelderMead(phaseKai2opt1, first);
+    return vec(result.coordinate_.data(), 2);
 }
 
 /**
@@ -244,24 +253,34 @@ double estimatePhaseShift(mat noisyImage, vec freq) {
         X.set_row(i, line);
         Y.set_col(i, line);
     }
-    auto phaseAutoCorrelation = [=](const std::array<double, 1> &x) -> double {
+//    auto phaseAutoCorrelation = [=](const std::array<double, 1> &x) -> double {
+//        mat sAo = cos((2 * pi * (freq[1] * (X - wo) + freq[0] * (Y - wo)) / width) + x[0]);
+//        mat temp = noisyImage - mean(noisyImage);
+//        double CCop = -sum(sum(elem_mult(temp, sAo)));
+//        return CCop;
+//    };
+//    std::array<double, 1> start = {phase};
+//    std::array<double, 1> step = {0.1};
+//    // very time-consuming, need to be optimized
+//    nelder_mead_result<double, 1> result = nelder_mead<double, 1>(
+//            phaseAutoCorrelation,
+//            start,
+//            1.0e-25, // the terminating limit for the variance of function values
+//            step, 1, 500
+//    );
+//    std::cout << "fminsearch Found minimum phase: " << std::fixed << result.xmin[0] << std::endl;
+//    cout << "fminsearch step: " << result.icount << endl;
+//    return result.xmin[0];
+    vector<double> first;
+    first.push_back(phase);
+    auto phaseAutoCorrelation1 = [=](const std::vector<double> &x) -> double {
         mat sAo = cos((2 * pi * (freq[1] * (X - wo) + freq[0] * (Y - wo)) / width) + x[0]);
         mat temp = noisyImage - mean(noisyImage);
         double CCop = -sum(sum(elem_mult(temp, sAo)));
         return CCop;
     };
-    std::array<double, 1> start = {phase};
-    std::array<double, 1> step = {0.1};
-    // very time-consuming, need to be optimized
-    nelder_mead_result<double, 1> result = nelder_mead<double, 1>(
-            phaseAutoCorrelation,
-            start,
-            1.0e-25, // the terminating limit for the variance of function values
-            step, 1, 500
-    );
-    std::cout << "fminsearch Found minimum phase: " << std::fixed << result.xmin[0] << std::endl;
-    cout << "fminsearch step: " << result.icount << endl;
-    return result.xmin[0];
+    RealFunctionvalueAtCoordinate result = nelderMead(phaseAutoCorrelation1, first);
+    return result.coordinate_[0];
 }
 
 /**
@@ -373,10 +392,10 @@ Orientation estimateSIMParameters(Vec<mat> patterns, const OtfFactory &otfFactor
         }));
     }
     for (int i = 0; i < 3; ++i) {
-        phase[i] = results2[i].get() * 180 / pi;
+        phase[i] = results2[i].get();
         ori.phaseShift[i] = phase[i];
     }
-    cout << "three order phase: " << phase << endl;
+    cout << "three order phase: " << phase * 180 / pi << endl;
     return ori;
 }
 
@@ -409,7 +428,7 @@ Vec<cmat> separatedSIMComponents2D(Vec<mat> patterns, Orientation ori, const Otf
         ftNoisy = fftshift(ftNoisy);
         ftNoisyImages.set(i, ftNoisy);
     }
-    int MF = 1.0;
+    double MF = 1.0;
     // Transformation Matrix
     MatrixXcd M(3, 3);
     for (int k = 0; k < 3; ++k) {
@@ -417,9 +436,11 @@ Vec<cmat> separatedSIMComponents2D(Vec<mat> patterns, Orientation ori, const Otf
         M(k, 1) = 0.5 * MF * exp(-1i * ori.phaseShift[k]);
         M(k, 2) = 0.5 * MF * exp(+1i * ori.phaseShift[k]);
     }
+    M = 0.5 * M;
     // Separate the components
     cout << "Separate the components" << endl;
     MatrixXcd Minv = M.inverse();
+    cout << "Separate Matrix = " << Minv << endl;
     Vec<cmat> unmixedFT(3); //  unmixed frequency components of raw SIM images
     for (int i = 0; i < 3; ++i) {
         unmixedFT[i] = Minv(i, 0) * ftNoisyImages[0]
@@ -577,7 +598,7 @@ Vec<cmat> wienerFilter(Vec<cmat> component, SIMParam &simParam,
                                    co, OBJPara, SFo, true, Ro,
                                    simParam.orientations[index], 0);
     // modulation factor determination
-    double Mm =simParam.orientations[index].modulationFactor;
+    double Mm = simParam.orientations[index].modulationFactor;
 //    estimateModulationFactor(component[1], kA, OBJPara, otfFactory);
 //    simParam.orientations[index].modulationFactor = Mm;
     // Duplex power (default)

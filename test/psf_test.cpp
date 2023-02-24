@@ -3,8 +3,11 @@
 #include <utils/itpp_mat_utils.h>
 #include <utils/cv_mat_utils.h>
 #include <utils/sim_parameter.h>
+#include <utils/OtfFactory.h>
 
+#include <Eigen/Dense>
 
+using Eigen::MatrixXcd;
 using namespace std;
 using namespace itpp;
 
@@ -14,11 +17,14 @@ void test_edgeTaper();
 
 void test_itpp();
 
+void testSeparateMatrix();
+
 int main() {
 //    test_generate_psf();
 //    test_edgeTaper();
-    SIMParam simParam;
-    cout << simParam.orientations[1] << endl;
+    testSeparateMatrix();
+//    SIMParam simParam;
+//    cout << simParam.orientations[1] << endl;
 
 //    cv::waitKey(0);
     return 0;
@@ -47,11 +53,10 @@ void test_itpp() {
 
 void test_generate_psf() {
     int w = 512;
-    mat psf = generatorPSF(w, 0.63);
-    cv::Mat cv_psf(w, w, CV_64F, psf._data());
+    OtfFactory otfFactory = OtfFactory(w, 0.63);
+    cv::Mat cv_psf(w, w, CV_64F, otfFactory.psf._data());
     cv::Mat cv_otf = cvfft2(cv_psf);
-    mat otf = PSFToOTF(psf);
-    cv::Mat it_otf(w, w, CV_64F, otf._data());
+    cv::Mat it_otf(w, w, CV_64F, otfFactory.otf._data());
 //    cout << "it_otf = " << it_otf << endl;
 
     cv::imshow("cv_psf", cv_psf);
@@ -65,8 +70,8 @@ void test_edgeTaper() {
 //    cout << fx << endl;
     int w = 512;
     int wo = w / 2;
-    mat psf = generatorPSF(w, 0.63);
-    mat otf = PSFToOTF(psf);
+    OtfFactory otfFactory = OtfFactory(w, 0.63);
+    mat otf = otfFactory.otf;
     int h = 30;
     otf = pow(otf, 10);
     otf = fftshift(otf);
@@ -88,3 +93,29 @@ void test_edgeTaper() {
     cv::imshow("result", result);
     cv::imshow("testpat", testpat);
 }
+
+void testSeparateMatrix() {
+    double p1[] = {-2.5559, 121.4715, -122.1179};
+    double p2[] = {3.2632, 115.4465, -118.9854};
+    double p3[] = {-0.7789, -122.2549, 115.8610};
+    vector<double *> phase;
+    phase.push_back(p1);
+    phase.push_back(p2);
+    phase.push_back(p3);
+    for (int i = 0; i < 3; ++i) {
+        double *p = phase[i];
+
+        MatrixXcd M(3, 3);
+        double MF = 1.0;
+        for (int k = 0; k < 3; ++k) {
+            M(k, 0) = 1.0;
+            M(k, 1) = 0.5 * MF * exp(-1i * p[k]*pi/180);
+            M(k, 2) = 0.5 * MF * exp(+1i * p[k]*pi/180);
+        }
+        M = 0.5 * M;
+        MatrixXcd Minv = M.inverse();
+        cout << "Separate M = " << M << endl;
+        cout << "Separate Minv = " << Minv << endl;
+    }
+}
+

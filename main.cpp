@@ -63,7 +63,7 @@ int main() {
             freqComp[i * 3 + j] = fComp[j];
         }
     }
-//    showPatternImage("filtered sim images", filterComps, obj.rows(), 0);
+    showPatternImage("filtered sim images", filterComps, obj.rows(), 0);
     Vec<cmat> results = mergeSIMImages(freqComp, simParam, OBJParaA, otfFactory.otf);
     Vec<mat> reconstructImages(6);
     for (int i = 0; i < 3; ++i) {
@@ -80,8 +80,8 @@ int main() {
     cv::Mat rawObj(w, w, CV_64F, obj._data());
     cv::Mat result(w, w, CV_64F, reconstructImages[0]._data());
 //    cv::imshow("testpat", testpat);
-    cv::imshow("rawObj", rawObj);
-    cv::imshow("result", result);
+    cv::imshow("ground truth", rawObj);
+    cv::imshow("reconstruct result", result);
 //    cv::imwrite("objs.tiff", objs);
 //    Mat resimg;
 //    //高斯模糊
