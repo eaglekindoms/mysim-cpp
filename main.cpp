@@ -33,26 +33,30 @@ int main() {
     SIMParam simParam;
     Vec<Vec<cmat>> components(3);
     ThreadPool pool(3);
-    vector<future<tuple<Vec<cmat>, Orientation>>> poolResult;
-    for (int i = 0; i < 9; i = i + 3) {
+    vector<future<Orientation>> poolResult;
+    for (int i = 0; i < 3; ++i) {
         poolResult.emplace_back(pool.enqueue([=] {
-            cout << "estimates frequency components, index: " << i / 3 << endl;
-            return separatedSIMComponents2D(patterns, otfFactory, i);
+            cout << "estimates frequency components, index: " << i << endl;
+            return estimateSIMParameters(patterns, otfFactory, i * 3);
         }));
     }
+//    simParam.matlabParam();
     for (int i = 0; i < 3; ++i) {
-        tuple<Vec<cmat>, Orientation> result = poolResult[i].get();
-        components[i] = get<0>(result);
-        simParam.orientations[i] = get<1>(result);
+        simParam.orientations[i] = poolResult[i].get();
+        components[i] = separatedSIMComponents2D(patterns, simParam.orientations[i], otfFactory, i * 3);
     }
     // averaging the central frequency components
     cmat fCent = (components[0][0] + components[1][0] + components[2][0]) / 3;
     // Object power parameters determination
-    vec OBJParaA = estimateObjectPowerParameters(fCent, otfFactory);
+    vec OBJParaA = estimateObjectPowerParameters(fCent, otfFactory);//"273624.7852070, -1.039610";
     // Wiener Filtering the noisy frequency components
     Vec<mat> filterComps(9);
     Vec<cmat> freqComp(9);
     for (int i = 0; i < 3; ++i) {
+        simParam.orientations[i].modulationFactor =
+                estimateModulationFactor(components[i][1],
+                                         simParam.orientations[i].freq,
+                                         OBJParaA, otfFactory);
         Vec<cmat> fComp = wienerFilter(components[i], simParam, OBJParaA, otfFactory, i);
         for (int j = 0; j < 3; ++j) {
             filterComps[i * 3 + j] = real(fComp[j]);

@@ -388,9 +388,9 @@ Orientation estimateSIMParameters(Vec<mat> patterns, const OtfFactory &otfFactor
  * @param index: phase index
  * @return noisy estimates of separated frequency components, and Orientation param
  */
-tuple<Vec<cmat>, Orientation> separatedSIMComponents2D(Vec<mat> patterns, const OtfFactory &otfFactory, int index) {
+Vec<cmat> separatedSIMComponents2D(Vec<mat> patterns, Orientation ori, const OtfFactory &otfFactory, int index) {
     mat otf = otfFactory.otf;
-    Orientation ori = estimateSIMParameters(patterns, otfFactory, index);
+//    Orientation ori = estimateSIMParameters(patterns, otfFactory, index);
     // computing PSFe for edge tapering SIM images
     mat psfd = pow(otf, 3);
     psfd = fftshift(psfd);
@@ -426,18 +426,18 @@ tuple<Vec<cmat>, Orientation> separatedSIMComponents2D(Vec<mat> patterns, const 
                        + Minv(i, 1) * ftNoisyImages[1]
                        + Minv(i, 2) * ftNoisyImages[2];
     }
-    return make_tuple(unmixedFT, ori);
+    return unmixedFT;
 }
 
 /**
  * Determination of modulation factor
  * @param freqComp: off-center frequency component
  * @param freq: illumination frequency vector
- * @param OBJParaA: Object power parameters
+ * @param OBJPara: Object power parameters
  * @param otf: system OTF
  * @return modulation factor
  */
-double estimateModulationFactor(cmat freqComp, vec freq, vec OBJParaA, const OtfFactory &otfFactory) {
+double estimateModulationFactor(cmat freqComp, vec freq, vec OBJPara, const OtfFactory &otfFactory) {
     mat otf = otfFactory.otf;
     int width = otf.rows();
     int wo = width / 2;
@@ -455,7 +455,7 @@ double estimateModulationFactor(cmat freqComp, vec freq, vec OBJParaA, const Otf
     complex<double> kv = freq[1] + 1i * freq[0];
     mat Rp = abs(Cv + kv);
     // Object spectrum
-    mat OBJp = OBJParaA[0] * pow((Rp + 0), OBJParaA[1]);
+    mat OBJp = OBJPara[0] * pow((Rp + 0), OBJPara[1]);
     // illumination vector rounded to the nearest pixel
     vec k3 = -round(freq);
 
@@ -500,14 +500,14 @@ double estimateModulationFactor(cmat freqComp, vec freq, vec OBJParaA, const Otf
  * @param fiSMao: noisy frequency component
  * @param otf: system OTF
  * @param co: Wiener filter constant [=1, for minimum RMS estimate]
- * @param OBJParaA: object power parameters
+ * @param OBJPara: object power parameters
  * @param SFo: scaling factor (not significant here, so set to 1)
  * @param isCenter:  Filtering the central or off-center frequency component
  * @return Wiener Filtered estimate of FiSMao; avg. noise power in FiSMao
  */
 cmat
-wienerFilterCenter(cmat fiSMao, const OtfFactory &otfFactory, double co, vec OBJParaA, double SFo, bool isCenter,
-                   mat OBJsideP, Orientation &ori, int phaseIndex) {
+wienerFilterCenter(cmat fiSMao, const OtfFactory &otfFactory, double co, vec OBJPara, double SFo, bool isCenter,
+                   mat OBJSideP, Orientation &ori, int phaseIndex) {
     mat otf = otfFactory.otf;
     int width = fiSMao.rows();
     int wo = width / 2;
@@ -535,9 +535,9 @@ wienerFilterCenter(cmat fiSMao, const OtfFactory &otfFactory, double co, vec OBJ
     mat OBJpower;
     if (isCenter) {
         Ro(wo + 1, wo + 1) = 1;
-        OBJpower = OBJParaA[0] * pow(Ro, OBJParaA[1]);
+        OBJpower = OBJPara[0] * pow(Ro, OBJPara[1]);
     } else {
-        OBJpower = OBJsideP;
+        OBJpower = OBJSideP;
     }
     OBJpower = pow(OBJpower, 2);
 
@@ -552,12 +552,12 @@ wienerFilterCenter(cmat fiSMao, const OtfFactory &otfFactory, double co, vec OBJ
 /**
  * obtaining Wiener Filtered estimates of noisy frequency components
  * @param component: noisy estimates of separated frequency component
- * @param OBJParaA: object power parameters
+ * @param OBJPara: object power parameters
  * @param otf: system OTF
  * @return  Wiener Filtered estimates of components; avg. noise power; modulation factor
  */
 Vec<cmat> wienerFilter(Vec<cmat> component, SIMParam &simParam,
-                       vec OBJParaA, const OtfFactory &otfFactory, int index) {
+                       vec OBJPara, const OtfFactory &otfFactory, int index) {
     mat otf = otfFactory.otf;
     int width = otf.rows();
     int wo = width / 2;
@@ -574,17 +574,18 @@ Vec<cmat> wienerFilter(Vec<cmat> component, SIMParam &simParam,
     double co = 1.0;
     vec kA = simParam.orientations[index].freq;
     cmat fDof = wienerFilterCenter(component[0], otfFactory,
-                                   co, OBJParaA, SFo, true, Ro,
+                                   co, OBJPara, SFo, true, Ro,
                                    simParam.orientations[index], 0);
     // modulation factor determination
-    double Mm = estimateModulationFactor(component[1], kA, OBJParaA, otfFactory);
-    simParam.orientations[index].modulationFactor = Mm;
+    double Mm =simParam.orientations[index].modulationFactor;
+//    estimateModulationFactor(component[1], kA, OBJPara, otfFactory);
+//    simParam.orientations[index].modulationFactor = Mm;
     // Duplex power (default)
     complex<double> kv = kA[1] + 1i * kA[0]; // vector along illumination direction
     mat Rp = abs(Cv - kv);
     mat Rm = abs(Cv + kv);
-    mat OBJp = OBJParaA[0] * pow(Rp, OBJParaA[1]);
-    mat OBJm = OBJParaA[0] * pow(Rm, OBJParaA[1]);
+    mat OBJp = OBJPara[0] * pow(Rp, OBJPara[1]);
+    mat OBJm = OBJPara[0] * pow(Rm, OBJPara[1]);
     vec k3 = round(kA);
     OBJp(wo + k3(0), wo + k3(1)) = 0.25 * OBJp(wo + 1 + k3(0), wo + k3(1))
                                    + 0.25 * OBJp(wo + k3(0), wo + 1 + k3(1))
@@ -597,10 +598,10 @@ Vec<cmat> wienerFilter(Vec<cmat> component, SIMParam &simParam,
     // Filtering side lobes (off-center frequency components)
     SFo = Mm;
     cmat fDpf = wienerFilterCenter(component[1], otfFactory,
-                                   co, OBJParaA, SFo, false, OBJm,
+                                   co, OBJPara, SFo, false, OBJm,
                                    simParam.orientations[index], 1);
     cmat fDmf = wienerFilterCenter(component[2], otfFactory,
-                                   co, OBJParaA, SFo, false, OBJp,
+                                   co, OBJPara, SFo, false, OBJp,
                                    simParam.orientations[index], 2);
     // doubling Fourier domain size if necessary
     /* TODO */
@@ -636,13 +637,13 @@ Vec<cmat> wienerFilter(Vec<cmat> component, SIMParam &simParam,
 
 /**
  * To obtain signal spectrums corresponding to central and off-center frequency components
- * @param OBJParaA: object power parameters
+ * @param OBJPara: object power parameters
  * @param k2fa: illumination frequency vector
  * @param otf: system OTF
  * @param fDIp: one of the off-center frequency component (utilized here only for visual verification of computation)
  * @return signal spectrum corresponding to frequency component
  */
-Vec<mat> tripletSNR0(vec OBJParaA, vec k2fa, mat otf, cmat fDIp) {
+Vec<mat> tripletSNR0(vec OBJPara, vec k2fa, mat otf, cmat fDIp) {
     int width = otf.rows();
     int wo = width / 2;
     mat X(width, width), Y(width, width);
@@ -656,9 +657,9 @@ Vec<mat> tripletSNR0(vec OBJParaA, vec k2fa, mat otf, cmat fDIp) {
     complex<double> kv = k2fa[1] + 1i * k2fa[0]; // vector along illumination direction
     mat Rp = abs(Cv - kv);
     mat Rm = abs(Cv + kv);
-    mat OBJo = OBJParaA[0] * pow(Ro, OBJParaA[1]);
-    mat OBJp = OBJParaA[0] * pow(Rp, OBJParaA[1]);
-    mat OBJm = OBJParaA[0] * pow(Rm, OBJParaA[1]);
+    mat OBJo = OBJPara[0] * pow(Ro, OBJPara[1]);
+    mat OBJp = OBJPara[0] * pow(Rp, OBJPara[1]);
+    mat OBJm = OBJPara[0] * pow(Rm, OBJPara[1]);
     vec k3 = round(k2fa);
     OBJo(wo, wo) = 0.25 * OBJo(wo + 1, wo) + 0.25 * OBJo(wo, wo + 1)
                    + 0.25 * OBJo(wo - 1, wo) + 0.25 * OBJo(wo, wo - 1);
@@ -690,18 +691,18 @@ Vec<mat> tripletSNR0(vec OBJParaA, vec k2fa, mat otf, cmat fDIp) {
  * @param noiseComp: noise powers corresponding to nine frequency components
  * @param modFactors: modulation factors for the three illumination orientations
  * @param freqVectors: illumination frequency vectors for the three illumination orientations
- * @param OBJParaA: Object spectrum parameters
+ * @param OBJPara: Object spectrum parameters
  * @param otf: system OTF
  * @return Fsum: all nine frequency components merged into one using generalised Wiener Filter;\n
  * Fperi: six off-center frequency components merged into one using generalised Wiener Filter;\n
  * Fcent: averaged of the three central frequency components
  */
-Vec<cmat> mergeSIMImages(Vec<cmat> freqComp, SIMParam simParam, vec OBJParaA, mat otf) {
+Vec<cmat> mergeSIMImages(Vec<cmat> freqComp, SIMParam simParam, vec OBJPara, mat otf) {
     Vec<mat> sigComp(9);
     vec noiseComp(9);
     for (int i = 0; i < 3; ++i) {
         sigComp.set_subvector(i * 3,
-                              tripletSNR0(OBJParaA, simParam.orientations[i].freq, otf, freqComp[i * 3 + 2]));
+                              tripletSNR0(OBJPara, simParam.orientations[i].freq, otf, freqComp[i * 3 + 2]));
     }
     for (int i = 0; i < 3; ++i) {
         sigComp[i * 3 + 1] = simParam.orientations[i].modulationFactor * sigComp[i * 3 + 1];
