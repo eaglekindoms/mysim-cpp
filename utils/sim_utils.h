@@ -95,7 +95,7 @@ simulateSIMImage(double freq, mat obj, const OtfFactory &otfFactory, double modF
  * @param kOtf OTF cut-off frequency
  * @return  maxK2: illumination frequency vector (approx); Ix,Iy: coordinates of illumination frequency peaks
  */
-Vec<ivec> approxFreqDuplex(cmat ftImage0, double kOtf) {
+Vec<ivec> approxFreqDuplex(const cmat &ftImage0, double kOtf) {
     mat ftImage = abs(ftImage0);
     int width = ftImage.rows();
     int wo = width / 2;
@@ -135,19 +135,17 @@ Vec<ivec> approxFreqDuplex(cmat ftImage0, double kOtf) {
 }
 
 /**
- *  Compute autocorrelation of FT of raw SIM images
- * @param freq: illumination frequency vector
+ *
  * @param ftImage: FT of raw SIM image
- * @param otf: system OTF
- * @param opt: acronym for `OPTIMIZE'; to be set to 1 when this function is used for optimization, or else to 0
- * @return CCop: autocorrelation of ftImage
+ * @param otfFactory: OTF
+ * @return uv矩阵, 与otf共轭化后的ftImage
  */
-double phaseAutoCorrelationFreqByOpt(vec freq, cmat ftImage, const OtfFactory &otfFactory, bool opt) {
+tuple<Vec<mat>, cmat> computeUVMat(const cmat &ftImage, const OtfFactory &otfFactory) {
     mat otf = otfFactory.otf;
     int width = ftImage.rows();
     int wo = width / 2;
-    ftImage = elem_mult(ftImage, to_cmat(1 - pow(otf, 10)));
-    cmat fS1aT = elem_mult(ftImage, conj(otfFactory.complexOtf));
+    cmat ftImage1 = elem_mult(ftImage, to_cmat(1 - pow(otf, 10)));
+    cmat fS1aT = elem_mult(ftImage1, conj(otfFactory.complexOtf));
 
     bool DoubleMatSize = false;
     if (2.0 * otfFactory.cutOff > wo) {
@@ -170,10 +168,27 @@ double phaseAutoCorrelationFreqByOpt(vec freq, cmat ftImage, const OtfFactory &o
         U.set_row(i, line);
         V.set_col(i, line);
     }
-    cmat S1aT = exp(std::complex<double>(0, -2 * pi) * (freq[1] / t * (U - to) + freq[0] / t * (V - to)));
+    Vec<mat> result(2);
+    result[0] = U - to;
+    result[1] = V - to;
+    return make_tuple(result, fS1aT);
+}
+
+/**
+ *  Compute autocorrelation of FT of raw SIM images
+ * @param freq: illumination frequency vector
+ * @param fS1aT: FT of raw SIM image
+ * @param otf: system OTF
+ * @param opt: acronym for `OPTIMIZE'; to be set to 1 when this function is used for optimization, or else to 0
+ * @return CCop: autocorrelation of ftImage
+ */
+double
+phaseAutoCorrelationFreqByOpt(vec freq, const cmat &fS1aT, const OtfFactory &otfFactory, bool opt, Vec<mat> uv, int t) {
+    mat U = uv[0];
+    mat V = uv[1];
+    cmat S1aT = exp(std::complex<double>(0, -2 * pi) * (freq[1] / t * U + freq[0] / t * V));
     S1aT = elem_mult(S1aT, ifft2(fS1aT));
     cmat fS1aT0 = fft2(S1aT);
-
     complex<double> mA = sum(sum(elem_mult(fS1aT, conj(fS1aT0))));
     mA = mA / sum(sum(elem_mult(fS1aT0, conj(fS1aT0))));
     double CCop = -abs(mA);
@@ -186,7 +201,7 @@ double phaseAutoCorrelationFreqByOpt(vec freq, cmat ftImage, const OtfFactory &o
  * @param otf
  * @return 估计的频域向量
  */
-vec estimateFreqVector(mat noisyImage, const OtfFactory &otfFactory) {
+vec estimateFreqVector(const mat &noisyImage, const OtfFactory &otfFactory) {
     // computing PSFe for edge tapering SIM images
     mat otf = otfFactory.otf;
     int w = otf.rows();
@@ -209,31 +224,20 @@ vec estimateFreqVector(mat noisyImage, const OtfFactory &otfFactory) {
     cmat fS1aTnoisy = fft2(noisyImage);
     fS1aTnoisy = fftshift(fS1aTnoisy);
     cout << "==== fminsearch ====" << endl;
-//    auto phaseKai2opt0 = [=](const std::array<double, 2> &x) -> double {
-//        vec freq(x.data(), 2);
-//        return phaseAutoCorrelationFreqByOpt(freq, fS1aTnoisy, otfFactory, true);
-//    };
-//    std::array<double, 2> start = {double(freqVector[0].get(0)), double(freqVector[0].get(1))};
-//    std::array<double, 2> step = {0.1, 0.1};
-    // very time-consuming, need to be optimized
-//    nelder_mead_result<double, 2> result = nelder_mead<double, 2>(
-//            phaseKai2opt0,
-//            start,
-//            1.0e-25, // the terminating limit for the variance of function values
-//            step, 1, 500
-//    );
-//    std::cout << "fminsearch Found minimum freq: " << std::fixed << result.xmin[0] << ' ' << result.xmin[1]
-//              << std::endl;
-//    cout << "fminsearch step: " << result.icount << endl;
-//    return vec(result.xmin.data(), 2);
     vector<double> first;
     first.push_back(freqVector[0].get(0));
     first.push_back(freqVector[0].get(1));
+    tuple<Vec<mat>, cmat> uvs = computeUVMat(fS1aTnoisy, otfFactory);
+    Vec<mat> uv = get<0>(uvs);
+    cmat fS1aT = get<1>(uvs);
+    int t = uv[0].rows();
     auto phaseKai2opt1 = [=](const std::vector<double> &x) -> double {
         vec freq(x.data(), 2);
-        return phaseAutoCorrelationFreqByOpt(freq, fS1aTnoisy, otfFactory, true);
+        return phaseAutoCorrelationFreqByOpt(freq, fS1aT, otfFactory, true, uv, t);
     };
     RealFunctionvalueAtCoordinate result = nelderMead(phaseKai2opt1, first);
+    std::cout << "fminsearch Found minimum freq: " << std::fixed << result.coordinate_[0] << ' '
+              << result.coordinate_[1] << std::endl;
     return vec(result.coordinate_.data(), 2);
 }
 
@@ -243,7 +247,7 @@ vec estimateFreqVector(mat noisyImage, const OtfFactory &otfFactory) {
  * @param freq 光场频域向量
  * @return 估计的相位
  */
-double estimatePhaseShift(mat noisyImage, vec freq) {
+double estimatePhaseShift(const mat &noisyImage, vec freq) {
     double phase = 0.0;// 初相位
     int width = noisyImage.rows();
     int wo = width / 2;
@@ -253,24 +257,6 @@ double estimatePhaseShift(mat noisyImage, vec freq) {
         X.set_row(i, line);
         Y.set_col(i, line);
     }
-//    auto phaseAutoCorrelation = [=](const std::array<double, 1> &x) -> double {
-//        mat sAo = cos((2 * pi * (freq[1] * (X - wo) + freq[0] * (Y - wo)) / width) + x[0]);
-//        mat temp = noisyImage - mean(noisyImage);
-//        double CCop = -sum(sum(elem_mult(temp, sAo)));
-//        return CCop;
-//    };
-//    std::array<double, 1> start = {phase};
-//    std::array<double, 1> step = {0.1};
-//    // very time-consuming, need to be optimized
-//    nelder_mead_result<double, 1> result = nelder_mead<double, 1>(
-//            phaseAutoCorrelation,
-//            start,
-//            1.0e-25, // the terminating limit for the variance of function values
-//            step, 1, 500
-//    );
-//    std::cout << "fminsearch Found minimum phase: " << std::fixed << result.xmin[0] << std::endl;
-//    cout << "fminsearch step: " << result.icount << endl;
-//    return result.xmin[0];
     vector<double> first;
     first.push_back(phase);
     auto phaseAutoCorrelation1 = [=](const std::vector<double> &x) -> double {
@@ -280,6 +266,7 @@ double estimatePhaseShift(mat noisyImage, vec freq) {
         return CCop;
     };
     RealFunctionvalueAtCoordinate result = nelderMead(phaseAutoCorrelation1, first);
+    std::cout << "fminsearch Found minimum phase: " << std::fixed << result.coordinate_[0] << std::endl;
     return result.coordinate_[0];
 }
 
@@ -289,7 +276,7 @@ double estimatePhaseShift(mat noisyImage, vec freq) {
  * @param otf: system OTF
  * @return 功率谱参数
  */
-vec estimateObjectPowerParameters(cmat fCent, const OtfFactory &otfFactory) {
+vec estimateObjectPowerParameters(const cmat &fCent, const OtfFactory &otfFactory) {
     mat otf = otfFactory.otf;
     int width = fCent.rows();
     int wo = width / 2;
@@ -312,8 +299,6 @@ vec estimateObjectPowerParameters(cmat fCent, const OtfFactory &otfFactory) {
     double ObjA = sum(sum(abs(elem_mult(fCent, to_cmat(Zm))))) / sum(sum(Zm));
     double ObjB = -0.5;
     cout << "estimate object power parameters" << endl;
-    std::array<double, 2> OBJpara0 = {ObjA, ObjB};
-    std::array<double, 2> step = {0.1, 0.1};
     Ro(wo, wo) = 1;// to avoid nan
     // range of frequency over which SSE is computed
     mat Zloop = zeros(width, width);
@@ -329,33 +314,27 @@ vec estimateObjectPowerParameters(cmat fCent, const OtfFactory &otfFactory) {
             if (Ro(i, j) > NoiseFreq) Zo(i, j) = 1;
         }
     }
+    cmat nNoise = elem_mult(fCent, to_cmat(Zo));
+    complex<double> NoisePower = sum(sum(elem_mult(nNoise, conj(nNoise)))) / sum(sum(Zo));
+    // Noise free object power computation
+    cmat Fpower = elem_mult(fCent, conj(fCent)) - NoisePower;
+    mat cent = sqrt(abs(Fpower));
     // Determined Sum of Squared Errors (SSE) between `actual signal power' and `approximated signal power'
-    auto estimateSumOfSquaredErr = [=](const std::array<double, 2> &x) -> double {
+    auto estimateSumOfSquaredErr = [=](const std::vector<double> &x) -> double {
         double Aobj = x[0];
         double Bobj = x[1];
         mat OBJPower = Aobj * (pow(Ro, Bobj));
         mat SIGPower = elem_mult(OBJPower, otf);
-        cmat nNoise = elem_mult(fCent, to_cmat(Zo));
-        complex<double> NoisePower = sum(sum(elem_mult(nNoise, conj(nNoise)))) / sum(sum(Zo));
-        // Noise free object power computation
-        cmat Fpower = elem_mult(fCent, conj(fCent)) - NoisePower;
-        mat cent = sqrt(abs(Fpower));
         // SSE computation
         mat Error = cent - SIGPower;
         double Esum = sum(sum(elem_mult(elem_div(pow(Error, 2), Ro), Zloop)));
         return Esum;
     };
-    // very time-consuming, need to be optimized
-    nelder_mead_result<double, 2> result = nelder_mead<double, 2>(
-            estimateSumOfSquaredErr,
-            OBJpara0,
-            1.0e-25, // the terminating limit for the variance of function values
-            step, 1, 500
-    );
-    std::cout << "fminsearch Found minimum power parameters: " << std::fixed << result.xmin[0] << ' ' << result.xmin[1]
-              << std::endl;
-    cout << "fminsearch step: " << result.icount << endl;
-    return vec(result.xmin.data(), 2);
+    std::vector<double> OBJpara0 = {ObjA, ObjB};
+    RealFunctionvalueAtCoordinate result = nelderMead(estimateSumOfSquaredErr, OBJpara0);
+    std::cout << "fminsearch Found minimum power parameters: " << std::fixed << result.coordinate_[0] << ' '
+              << result.coordinate_[1] << std::endl;
+    return vec(result.coordinate_.data(), 2);
 }
 
 /**
@@ -366,8 +345,8 @@ vec estimateObjectPowerParameters(cmat fCent, const OtfFactory &otfFactory) {
  * @param index: orientation index
  * @return: avg.freq and three phase shift
  */
-Orientation estimateSIMParameters(Vec<mat> patterns, const OtfFactory &otfFactory, int index) {
-    cout << "start estimate freq" << endl;
+Orientation estimateSIMParameters(const Vec<mat> &patterns, const OtfFactory &otfFactory, int index) {
+    cout << "start estimate SIM parameter" << endl;
     ThreadPool pool(3);
     vector<future<vec>> results1;
     for (int i = 0; i < 3; i++) {
@@ -407,7 +386,7 @@ Orientation estimateSIMParameters(Vec<mat> patterns, const OtfFactory &otfFactor
  * @param index: phase index
  * @return noisy estimates of separated frequency components, and Orientation param
  */
-Vec<cmat> separatedSIMComponents2D(Vec<mat> patterns, Orientation ori, const OtfFactory &otfFactory, int index) {
+Vec<cmat> separatedSIMComponents2D(Vec<mat> patterns, const Orientation &ori, const OtfFactory &otfFactory, int index) {
     mat otf = otfFactory.otf;
 //    Orientation ori = estimateSIMParameters(patterns, otfFactory, index);
     // computing PSFe for edge tapering SIM images
@@ -458,7 +437,7 @@ Vec<cmat> separatedSIMComponents2D(Vec<mat> patterns, Orientation ori, const Otf
  * @param otf: system OTF
  * @return modulation factor
  */
-double estimateModulationFactor(cmat freqComp, vec freq, vec OBJPara, const OtfFactory &otfFactory) {
+double estimateModulationFactor(const cmat &freqComp, vec freq, vec OBJPara, const OtfFactory &otfFactory) {
     mat otf = otfFactory.otf;
     int width = otf.rows();
     int wo = width / 2;
@@ -527,8 +506,8 @@ double estimateModulationFactor(cmat freqComp, vec freq, vec OBJPara, const OtfF
  * @return Wiener Filtered estimate of FiSMao; avg. noise power in FiSMao
  */
 cmat
-wienerFilterCenter(cmat fiSMao, const OtfFactory &otfFactory, double co, vec OBJPara, double SFo, bool isCenter,
-                   mat OBJSideP, Orientation &ori, int phaseIndex) {
+wienerFilterCenter(const cmat &fiSMao, const OtfFactory &otfFactory, double co, vec OBJPara, double SFo, bool isCenter,
+                   const mat &OBJSideP, Orientation &ori, int phaseIndex) {
     mat otf = otfFactory.otf;
     int width = fiSMao.rows();
     int wo = width / 2;
@@ -664,7 +643,7 @@ Vec<cmat> wienerFilter(Vec<cmat> component, SIMParam &simParam,
  * @param fDIp: one of the off-center frequency component (utilized here only for visual verification of computation)
  * @return signal spectrum corresponding to frequency component
  */
-Vec<mat> tripletSNR0(vec OBJPara, vec k2fa, mat otf, cmat fDIp) {
+Vec<mat> tripletSNR0(vec OBJPara, vec k2fa, const mat &otf, const cmat &fDIp) {
     int width = otf.rows();
     int wo = width / 2;
     mat X(width, width), Y(width, width);
@@ -718,7 +697,7 @@ Vec<mat> tripletSNR0(vec OBJPara, vec k2fa, mat otf, cmat fDIp) {
  * Fperi: six off-center frequency components merged into one using generalised Wiener Filter;\n
  * Fcent: averaged of the three central frequency components
  */
-Vec<cmat> mergeSIMImages(Vec<cmat> freqComp, SIMParam simParam, vec OBJPara, mat otf) {
+Vec<cmat> mergeSIMImages(Vec<cmat> freqComp, SIMParam simParam, vec OBJPara, const mat &otf) {
     Vec<mat> sigComp(9);
     vec noiseComp(9);
     for (int i = 0; i < 3; ++i) {
@@ -771,7 +750,7 @@ Vec<cmat> mergeSIMImages(Vec<cmat> freqComp, SIMParam simParam, vec OBJPara, mat
  * @param w 图像宽度
  * @param isDivMax 是否除最大值
  */
-void showPatternImage(string name, Vec<mat> patterns, int w, int isDivMax) {
+void showPatternImage(const string &name, Vec<mat> patterns, int w, int isDivMax) {
     const int MAX_PIXEL = 300;
     int imgNum = patterns.size();
     int imgCols = 3;

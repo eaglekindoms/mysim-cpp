@@ -30,6 +30,8 @@ int main() {
     Vec<mat> patterns = simulateSIMImage(k2, obj, otfFactory, modFac, noiseLevel, 1);
     showPatternImage("raw sim images", patterns, obj.rows(), 1);
     // obtaining the noisy estimates of three frequency components
+    // 计时器
+    long long t1 = get_cur_time();
     SIMParam simParam;
     Vec<Vec<cmat>> components(3);
     ThreadPool pool(3);
@@ -49,6 +51,8 @@ int main() {
     cmat fCent = (components[0][0] + components[1][0] + components[2][0]) / 3;
     // Object power parameters determination
     vec OBJParaA = estimateObjectPowerParameters(fCent, otfFactory);//"273624.7852070, -1.039610";
+    long long t2 = get_cur_time();
+    std::cout << "Estimate parameter use: " << t2 - t1 << "ms.\n";
     // Wiener Filtering the noisy frequency components
     Vec<mat> filterComps(9);
     Vec<cmat> freqComp(9);

@@ -72,6 +72,7 @@ int main(void) {
             step
     );
     std::cout << "Found minimum: " << std::fixed << result.xmin[0] << ' ' << result.xmin[1] << std::endl;
+    std::cout << "Found step: " <<  result.icount << std::endl;
     std::vector<double> start1;
     start1.push_back(0.5);
     start1.push_back(0.5);

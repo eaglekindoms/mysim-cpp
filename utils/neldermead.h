@@ -11,7 +11,24 @@
 #include <algorithm>
 #include <numeric>
 #include <iostream>
+#include <chrono>
 
+
+/**
+ * 获取操作系统当前时间点，精确到ms
+ * @return
+ */
+long long get_cur_time() {
+    // 获取操作系统当前时间点（精确到微秒）
+    std::chrono::time_point<std::chrono::system_clock, std::chrono::microseconds> tpMicro
+            = std::chrono::time_point_cast<std::chrono::microseconds>(std::chrono::system_clock::now());
+    // (微秒精度的)时间点 => (微秒精度的)时间戳
+    time_t totalMicroSeconds = tpMicro.time_since_epoch().count();
+
+    long long currentTime = ((long long) totalMicroSeconds) / 1000;
+
+    return currentTime;
+}
 
 /*! \internal
  *  \brief The parameters for a Nelder-Mead optimisation.
@@ -72,6 +89,12 @@ std::vector<double> linearCombination(double alpha, std::vector<double> a, doubl
  */
 class NelderMeadSimplex {
 public:
+
+    int reflectStep = 0;
+    int expanseStep = 0;
+    int contractStep = 0;
+    int shrinkStep = 0;
+
     /*! \brief Set up Nelder-Mead simplex from an initial guess.
      *
      * \note Triggers N+1 function evaluations at all simplex points.
@@ -124,7 +147,6 @@ public:
     RealFunctionvalueAtCoordinate
     evaluateReflectionPoint(const std::function<double(const std::vector<double> &)> &fn) const {
         return {reflectionPointCoordinates_, fn(reflectionPointCoordinates_)};
-
     }
 
     //! Evaluate and return the expansion point and function value.
@@ -142,9 +164,9 @@ public:
     RealFunctionvalueAtCoordinate
     evaluateContractionPoint(const std::function<double(const std::vector<double> &)> &fn) const {
         std::vector<double> contractionPoint = linearCombination(1 - defaultNelderMeadParameters.rho_,
-                                                               centroidWithoutWorstPoint_,
-                                                               defaultNelderMeadParameters.rho_,
-                                                               worstVertex().coordinate_);
+                                                                 centroidWithoutWorstPoint_,
+                                                                 defaultNelderMeadParameters.rho_,
+                                                                 worstVertex().coordinate_);
         return {contractionPoint, fn(contractionPoint)};
     }
 
@@ -276,21 +298,23 @@ private:
 
 RealFunctionvalueAtCoordinate nelderMead(const std::function<double(const std::vector<double> &)> &functionToMinimize,
                                          std::vector<double> initalGuess,
-                                         double minimumRelativeSimplexLength = 1e-8,
+                                         double minimumRelativeSimplexLength = 1e-4,
                                          int maxSteps = 500) {
+    // 计时器
+    long long t1 = get_cur_time();
     // Set up the initial simplex, sorting vertices according to function value
     NelderMeadSimplex nelderMeadSimplex(functionToMinimize, initalGuess);
-
     // Run until maximum step size reached or algorithm is converged, e.g.,
     // the oriented simplex length is smaller or equal a given number.
     const double minimumSimplexLength = minimumRelativeSimplexLength * nelderMeadSimplex.orientedLength();
-    for (int currentStep = 0;
-         nelderMeadSimplex.orientedLength() > minimumSimplexLength && currentStep < maxSteps;
-         ++currentStep) {
+    int currentStep = 0;
+    for (; nelderMeadSimplex.orientedLength() > minimumSimplexLength && currentStep < maxSteps;
+           ++currentStep) {
 
         // see if simplex can by improved by reflecing the worst vertex at the centroid
         const RealFunctionvalueAtCoordinate &reflectionPoint =
                 nelderMeadSimplex.evaluateReflectionPoint(functionToMinimize);
+        nelderMeadSimplex.reflectStep++;
 
         // Reflection point is not better than best simplex vertex so far
         // but better than second worst
@@ -305,6 +329,7 @@ RealFunctionvalueAtCoordinate nelderMead(const std::function<double(const std::v
         if (reflectionPoint.value_ < nelderMeadSimplex.bestVertex().value_) {
             RealFunctionvalueAtCoordinate expansionPoint =
                     nelderMeadSimplex.evaluateExpansionPoint(functionToMinimize);
+            nelderMeadSimplex.expanseStep++;
             if (expansionPoint.value_ < reflectionPoint.value_) {
                 nelderMeadSimplex.swapOutWorst(expansionPoint);
             } else {
@@ -317,6 +342,7 @@ RealFunctionvalueAtCoordinate nelderMead(const std::function<double(const std::v
         // worst point coordinates using the centroid instead
         RealFunctionvalueAtCoordinate contractionPoint =
                 nelderMeadSimplex.evaluateContractionPoint(functionToMinimize);
+        nelderMeadSimplex.contractStep++;
         if (contractionPoint.value_ < nelderMeadSimplex.worstVertex().value_) {
             nelderMeadSimplex.swapOutWorst(contractionPoint);
             continue;
@@ -325,8 +351,14 @@ RealFunctionvalueAtCoordinate nelderMead(const std::function<double(const std::v
         // If neither expansion nor contraction of the worst point give a
         // good result shrink the whole simplex
         nelderMeadSimplex.shrinkSimplexPointsExceptBest(functionToMinimize);
+        nelderMeadSimplex.shrinkStep++;
     }
-
+    long long t2 = get_cur_time();
+    std::cout << "nelder-mead use: " << t2 - t1 << "ms" << ", totalStep: " << currentStep;
+    std::cout << ", reflectStep: " << nelderMeadSimplex.reflectStep;
+    std::cout << ", expanseStep: " << nelderMeadSimplex.expanseStep;
+    std::cout << ", contractStep: " << nelderMeadSimplex.contractStep;
+    std::cout << ", shrinkStep: " << nelderMeadSimplex.shrinkStep << std::endl;
     return {nelderMeadSimplex.bestVertex().coordinate_, nelderMeadSimplex.bestVertex().value_};
 }
 
