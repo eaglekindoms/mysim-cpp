@@ -5,6 +5,7 @@
 #include <utils/itpp_mat_utils.h>
 #include <utils/sim_utils.h>
 #include <utils/thread_pool.h>
+#include <utils/opensim/OpenSIMReconstruct.cpp>
 #include <chrono>
 
 using namespace std;
@@ -32,57 +33,18 @@ int main() {
     // obtaining the noisy estimates of three frequency components
     // 计时器
     long long t1 = get_cur_time();
-    SIMParam simParam;
-    Vec<Vec<cmat>> components(3);
-    ThreadPool pool(3);
-    vector<future<Orientation>> poolResult;
-    for (int i = 0; i < 3; ++i) {
-        poolResult.emplace_back(pool.enqueue([=] {
-            cout << "estimates frequency components, index: " << i << endl;
-            return estimateSIMParameters(patterns, otfFactory, i * 3);
-        }));
-    }
-//    simParam.matlabParam();
-    for (int i = 0; i < 3; ++i) {
-        simParam.orientations[i] = poolResult[i].get();
-        components[i] = separatedSIMComponents2D(patterns, simParam.orientations[i], otfFactory, i * 3);
-    }
-    // averaging the central frequency components
-    cmat fCent = (components[0][0] + components[1][0] + components[2][0]) / 3;
-    // Object power parameters determination
-    vec OBJParaA = estimateObjectPowerParameters(fCent, otfFactory);//"273624.7852070, -1.039610";
+    OpenSIMReconstruct opensim;
+    SIMParam simParam = opensim.estimateParameters(patterns, otfFactory);
+    Vec<cmat> freqComp = opensim.separatedSIMComponents(patterns, simParam, otfFactory);
     long long t2 = get_cur_time();
     std::cout << "Estimate parameter use: " << t2 - t1 << "ms.\n";
-    // Wiener Filtering the noisy frequency components
-    Vec<mat> filterComps(9);
-    Vec<cmat> freqComp(9);
-    for (int i = 0; i < 3; ++i) {
-        simParam.orientations[i].modulationFactor =
-                estimateModulationFactor(components[i][1],
-                                         simParam.orientations[i].freq,
-                                         OBJParaA, otfFactory);
-        Vec<cmat> fComp = wienerFilter(components[i], simParam, OBJParaA, otfFactory, i);
-        for (int j = 0; j < 3; ++j) {
-            filterComps[i * 3 + j] = real(fComp[j]);
-            freqComp[i * 3 + j] = fComp[j];
-        }
-    }
-    showPatternImage("filtered sim images", filterComps, obj.rows(), 0);
-    Vec<cmat> results = mergeSIMImages(freqComp, simParam, OBJParaA, otfFactory.otf);
-    Vec<mat> reconstructImages(6);
-    for (int i = 0; i < 3; ++i) {
-        reconstructImages[i] = real(ifft2(fftshift(results[i])));
-        double rMax = max(max(reconstructImages[i], 1));
-        reconstructImages[i] = reconstructImages[i] / rMax;
-        reconstructImages[i + 3] = abs(results[i]);
-    }
-    showPatternImage("reconstruction sim images", reconstructImages, obj.rows(), 0);
+    mat reconstructImage = opensim.reconstruct(freqComp, simParam, otfFactory);
     // show raw image
     obj = patterns[9];
     int objMax = max(max(obj, 1));
     obj = obj / objMax;
     cv::Mat groundTruth(w, w, CV_64F, obj._data());
-    cv::Mat result(w, w, CV_64F, reconstructImages[0]._data());
+    cv::Mat result(w, w, CV_64F, reconstructImage._data());
     cv::Mat otfShow(w, w, CV_64F, otfFactory.otf._data());
     cv::imshow("testpat", testpat);
     cv::imshow("ground truth", groundTruth);
