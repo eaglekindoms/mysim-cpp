@@ -179,7 +179,7 @@ tuple<Vec<mat>, cmat> computeUVMat(const cmat &ftImage, const OtfFactory &otfFac
  * @param freq: illumination frequency vector
  * @param fS1aT: FT of raw SIM image
  * @param otf: system OTF
- * @param opt: acronym for `OPTIMIZE'; to be set to 1 when this function is used for optimization, or else to 0
+ * @param opt: acronym for 'OPTIMIZE'; to be set to 1 when this function is used for optimization, or else to 0
  * @return CCop: autocorrelation of ftImage
  */
 double
@@ -340,7 +340,6 @@ vec estimateObjectPowerParameters(const cmat &fCent, const OtfFactory &otfFactor
 /**
  * estimate freq vector and phase of three frequency components
  * @param patterns: raw sim images
- * @param simParam: sim param needed to be updated
  * @param otf: system otf
  * @param index: orientation index
  * @return: avg.freq and three phase shift

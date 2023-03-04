@@ -12,7 +12,7 @@ using Eigen::VectorXd;
 using namespace std;
 
 int main() {
-    int w = 300;
+    int w = 3;
     VectorXd vv = VectorXd::LinSpaced(w, 0.1, 1);
     MatrixXd m(w, w);
     MatrixXcd cm(w, w);
@@ -20,13 +20,18 @@ int main() {
         m.row(i) = vv;
     }
 //    m = (m + MatrixXd::Constant(300, 300, 1.2)) * 0.5;
+    m(0, 0) = 12;
     std::cout << "m =" << std::endl << m << std::endl;
-    Eigen::FFT<complex<double>> fft;
+    MatrixXd mi = m.inverse();
+    std::cout << "m =" << std::endl << mi << std::endl;
+
+
+//    Eigen::FFT<complex<double>> fft;
 //    auto a =fft.fwd(m);
 //    VectorXd v(3);
 //    v << 1, 2, 3;
-    cv::Mat cvMat;
-    cv::eigen2cv(m, cvMat);
+//    cv::Mat cvMat;
+//    cv::eigen2cv(m, cvMat);
 //    cv::imshow("cvMat", cvMat);
 //    cv::waitKey(0);
     return 0;

@@ -1,4 +1,4 @@
-//
+﻿//
 // Created by eagle on 2023/2/21.
 //
 
@@ -71,11 +71,22 @@ public:
 
 
 std::ostream &operator<<(std::ostream &os, const Orientation &ori) {
-    os << '[' << "orientationIndex = " << ori.orientationIndex;
+    os << '[' << "orientationIndex = " << ori.orientationIndex / 3;
     os << ", freqX = " << ori.freq[0];
     os << ", freqY = " << ori.freq[1];
-    os << ", phaseShift = " << ori.phaseShift[0] << ", " << ori.phaseShift[1] << ", " << ori.phaseShift[2];
+    os << ", phaseShift = [ " << ori.phaseShift[0] << ", " << ori.phaseShift[1] << ", " << ori.phaseShift[2] << " ]";
     os << ", modulationFactor = " << ori.modulationFactor << ']';
+    os << ", noisePower = [ " << ori.noiseComp[0] << ", " << ori.noiseComp[1] << ", " << ori.noiseComp[2] << " ]";
+    return os;
+}
+
+std::ostream &operator<<(std::ostream &os, const SIMParam &param) {
+    os << '[' << "SIMParam = ";
+    for (int i = 0; i < 3; ++i) {
+        cout << param.orientations[i];
+        if(i!=2) cout << ", ";
+    }
+    os << "]";
     return os;
 }
 

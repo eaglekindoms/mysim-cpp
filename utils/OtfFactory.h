@@ -1,4 +1,4 @@
-//
+﻿//
 // Created by eagle on 2023/2/22.
 //
 
@@ -33,14 +33,12 @@ public:
         cout << "================================" << endl;
         cout << "    generator psf by besselj functions " << endl;
         cout << "================================" << endl;
-        vec x, y;
-        mat X, Y;
-        x = linspace(0, width - 1, width);
-        for (int i = 0; i < width; i++) {
-            y = concat(x, y);
+        mat X(width, width), Y(width, width);
+        vec line = linspace(0, width - 1, width);
+        for (int i = 0; i < width; ++i) {
+            X.set_row(i, line);
+            Y.set_col(i, line);
         }
-        X = mat(y._data(), width, width);
-        Y = mat(y._data(), width, width, false);
         mat tempMat = abs(X - width);
         minMat(X, tempMat);
         tempMat = abs(Y - width);

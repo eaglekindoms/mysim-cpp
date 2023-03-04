@@ -73,3 +73,4 @@ Thumbs.db
 
 # IDEA
 .idea
+/CMakeLists.txt.user

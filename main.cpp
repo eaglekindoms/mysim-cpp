@@ -74,18 +74,21 @@ int main() {
         reconstructImages[i] = real(ifft2(fftshift(results[i])));
         double rMax = max(max(reconstructImages[i], 1));
         reconstructImages[i] = reconstructImages[i] / rMax;
-        reconstructImages[i + 3] = real(results[i]);
+        reconstructImages[i + 3] = abs(results[i]);
     }
     showPatternImage("reconstruction sim images", reconstructImages, obj.rows(), 0);
     // show raw image
     obj = patterns[9];
     int objMax = max(max(obj, 1));
     obj = obj / objMax;
-    cv::Mat rawObj(w, w, CV_64F, obj._data());
+    cv::Mat groundTruth(w, w, CV_64F, obj._data());
     cv::Mat result(w, w, CV_64F, reconstructImages[0]._data());
-//    cv::imshow("testpat", testpat);
-    cv::imshow("ground truth", rawObj);
+    cv::Mat otfShow(w, w, CV_64F, otfFactory.otf._data());
+    cv::imshow("testpat", testpat);
+    cv::imshow("ground truth", groundTruth);
     cv::imshow("reconstruct result", result);
+    cv::imshow("otf", otfShow);
+    std::cout << simParam << std::endl;
 //    cv::imwrite("objs.tiff", objs);
 //    Mat resimg;
 //    //高斯模糊
