@@ -44,10 +44,18 @@ public:
 
 class SIMParam {
 public:
+    /**
+     * Optical information
+     */
     vector<Orientation> orientations;
+    /**
+     * Object power parameters
+     */
+    vec objPara;
 
     SIMParam() {
         orientations.resize(3, Orientation(0));
+        objPara = zeros(2);
         for (int i = 0; i < 3; ++i) {
             orientations[i].orientationIndex = i;
         }
@@ -84,7 +92,7 @@ std::ostream &operator<<(std::ostream &os, const SIMParam &param) {
     os << '[' << "SIMParam = ";
     for (int i = 0; i < 3; ++i) {
         cout << param.orientations[i];
-        if(i!=2) cout << ", ";
+        if (i != 2) cout << ", ";
     }
     os << "]";
     return os;

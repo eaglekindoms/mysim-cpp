@@ -109,8 +109,8 @@ void testSeparateMatrix() {
         double MF = 1.0;
         for (int k = 0; k < 3; ++k) {
             M(k, 0) = 1.0;
-            M(k, 1) = 0.5 * MF * exp(-1i * p[k]*pi/180);
-            M(k, 2) = 0.5 * MF * exp(+1i * p[k]*pi/180);
+            M(k, 1) = 0.5 * MF * exp(-1i * p[k] * pi / 180);
+            M(k, 2) = 0.5 * MF * exp(+1i * p[k] * pi / 180);
         }
         M = 0.5 * M;
         MatrixXcd Minv = M.inverse();
