@@ -19,14 +19,16 @@ void test_itpp();
 
 void testSeparateMatrix();
 
+void testFairSIMOTF();
+
 int main() {
 //    test_generate_psf();
 //    test_edgeTaper();
-    testSeparateMatrix();
+//    testSeparateMatrix();
 //    SIMParam simParam;
 //    cout << simParam.orientations[1] << endl;
-
-//    cv::waitKey(0);
+    testFairSIMOTF();
+    cv::waitKey(0);
     return 0;
 }
 
@@ -119,3 +121,30 @@ void testSeparateMatrix() {
     }
 }
 
+#include <utils/fairsim/OtfProvider.h>
+
+void testFairSIMOTF() {
+    OtfProvider otf = OtfProvider::fromEstimate(1.4, 515, 0.3);
+    otf.setPixelSize(0.023);
+    int w = 512;
+    cmat otfCache = zeros_c(w, w);
+    otf.otfToVector(otfCache, 0, 0, 0, false, true);
+    otfCache = fftshift(otfCache);
+    mat otfReal = real(otfCache);
+    mat powerSpec(w, w);
+    double min1 = log(min(min(otfReal, 1)));
+    double max1 = log(max(max(otfReal, 1)));
+    if (isnan(min1) || (max1 - min1) > 30)
+        min1 = max1 - 30;
+    for (int y = 0; y < w; y++) {
+        for (int x = 0; x < w; x++) {
+            double r = ((log(otfReal(x, y)) - min1) / (max1 - min1));
+            if (isnan(r) || r < 0) r = 0;
+            powerSpec(x, y) = r;
+        }
+    }
+    cv::Mat result(w, w, CV_64F, otfReal._data());
+    cv::imshow("otfReal", result);
+    cv::Mat pow(w, w, CV_64F, powerSpec._data());
+    cv::imwrite("powerSpec.tif", pow);
+}
